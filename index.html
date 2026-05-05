@@ -508,6 +508,7 @@
       cobraPaid: true,
       retirementBonus: 25000,
       vestingMonths: 12,
+      acceptanceMonthsFromNow: 1,  // "30-day acceptance" — separation occurs roughly this many months from today
     },
     offerPost: {
       cashAmount: 280000,
@@ -515,6 +516,7 @@
       healthType: 'cobra-paid', // cobra-paid|cobra-self|none
       pensionCredits: 0,
       vestingMonths: 6,
+      acceptanceMonthsFromNow: 1,
     },
     layoff: {
       startMonthsFromNow: 0,
@@ -563,6 +565,12 @@
       }
       if (parsed && parsed.profile && parsed.profile.septRsuVest === undefined) {
         parsed.profile.septRsuVest = 50000;
+      }
+      if (parsed && parsed.offerPre && parsed.offerPre.acceptanceMonthsFromNow === undefined) {
+        parsed.offerPre.acceptanceMonthsFromNow = 1;
+      }
+      if (parsed && parsed.offerPost && parsed.offerPost.acceptanceMonthsFromNow === undefined) {
+        parsed.offerPost.acceptanceMonthsFromNow = 1;
       }
       // Strip retired fields from older saves so they don't bloat exports.
       if (parsed && parsed.profile) {
@@ -663,50 +671,67 @@
       const { startCashAtSeparation = 0, separationYears = 0,
               workYears = 0, workSalary = s.profile.salary, gapYears = 0,
               employerHealthMonths = Infinity } = opts;
-      const out = []; let bal = 0; let age = s.profile.age;
+      // Initial state at t = today. If separation happens at t=0 (e.g., VRP accepted today
+      // with no waiting period), the lump is already in hand and visible at traj[0] so the
+      // chart shows an immediate jump rather than a year-long ramp.
+      let bal = (separationYears <= 0) ? startCashAtSeparation : 0;
+      let lumpAdded = (separationYears <= 0);
+      let age = s.profile.age;
+      const out = [];
+      const reEmpAnnSave = workSalary * MODEL.SAVINGS_RATE_SALARY
+                        + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU * (workSalary / s.profile.salary);
       const retireStartIdx = Math.max(0, Math.ceil(separationYears + gapYears + workYears));
+
       for (let y = 0; y <= years; y++) {
         out.push({ year: y, age, balance: bal });
         bal = bal * (1 + r/100);
 
-        if (y < separationYears) {
-          // Still employed pre-separation: full-salary contributions.
-          bal += annSaveWorking;
-        } else {
-          const yPost = y - separationYears;
-          if (yPost === 0) bal += startCashAtSeparation;
+        // ---- Pre-separation contributions (prorated for the partial year that contains separation)
+        const empFracThisYear = Math.max(0, Math.min(1, separationYears - y));
+        if (empFracThisYear > 0) {
+          bal += annSaveWorking * empFracThisYear;
+        }
 
-          if (yPost < gapYears) {
-            // Job-gap: no contributions, small living-cost drawdown.
-            bal -= s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax);
-          } else if (yPost - gapYears < workYears) {
-            // Re-employment: smoothed contribution at workSalary scale.
-            // (No September lump from the new employer in this simple model.)
-            const annSave = workSalary * MODEL.SAVINGS_RATE_SALARY
-                          + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU * (workSalary / s.profile.salary);
-            bal += annSave;
+        // ---- Separation lump: add it in the first year where the separation point has passed.
+        if (!lumpAdded && (y + 1) >= separationYears) {
+          bal += startCashAtSeparation;
+          lumpAdded = true;
+        }
+
+        // ---- Post-separation activity for the post-sep portion of this year.
+        const postFrac = 1 - empFracThisYear;
+        if (postFrac > 0 && y + 1 > separationYears) {
+          const yPostStart = Math.max(0, y - separationYears);
+          const yPostEnd   = (y + 1) - separationYears;
+          // Determine which post-sep phase the *end* of the year falls in. We don't try
+          // to split a year across phase boundaries (gap → work → withdrawal); the tail
+          // phase wins for the prorated portion. This is a small approximation that
+          // keeps the model readable.
+          if (yPostEnd <= gapYears) {
+            bal -= s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax) * postFrac;
+          } else if (yPostEnd <= gapYears + workYears) {
+            bal += reEmpAnnSave * postFrac;
           } else {
-            // Withdrawal phase. Pick spending level by age.
             const annualDraw = age < s.profile.retireAge ? bridgeSpend : retireSpend;
             const ssThisYear = age >= s.assumptions.ssStartAge ? ssAnnual : 0;
-            bal -= Math.max(0, annualDraw - ssThisYear);
+            bal -= Math.max(0, annualDraw - ssThisYear) * postFrac;
           }
         }
 
-        // September bonus + RSU vest tranche. Captured only if the September date for
-        // this projection-year falls *strictly before* separation (still employed at the
-        // current employer). Smoothed savings rates apply so we stay consistent with the
-        // rest of the model (the rest of the lump is assumed spent on living costs).
-        const septFrac = septFracYearsFromNow(y);
-        if (septFrac < separationYears) {
+        // ---- September bonus + RSU vest tranche.
+        // The Sept payout for projection-year y lands at calendar time septFracYearsFromNow(y)
+        // measured from "today". Capture it iff that date is strictly before the separation
+        // (you must still be employed at the current employer when Sept arrives).
+        const septT = septFracYearsFromNow(y);
+        if (septT < separationYears) {
           bal += (s.profile.septBonus || 0) * MODEL.SAVINGS_RATE_BONUS;
           bal += (s.profile.septRsuVest || 0) * MODEL.SAVINGS_RATE_RSU;
         }
 
-        // Private health premiums (post-separation, pre-Medicare) for any month not covered by employer/COBRA.
-        if (age < MODEL.MEDICARE_AGE && y >= separationYears) {
-          const yearStartMonth = (y - separationYears) * 12;
-          const yearEndMonth   = yearStartMonth + 12;
+        // ---- Private health premiums (post-separation, pre-Medicare) for any month not covered.
+        if (age < MODEL.MEDICARE_AGE && y + 1 > separationYears) {
+          const yearStartMonth = Math.max(0, (y - separationYears)) * 12;
+          const yearEndMonth   = ((y + 1) - separationYears) * 12;
           const coveredEndMonth = Math.max(0, employerHealthMonths);
           const uncoveredStart = Math.max(yearStartMonth, coveredEndMonth);
           const uncoveredMonthsThisYear = Math.max(0, yearEndMonth - uncoveredStart);
@@ -768,9 +793,13 @@
       ? 0
       : (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
     const vrpStart = offerCashNet + vestingValue;
+    // Acceptance window: VRP separation happens this far in the future. Lets the Sept
+    // bonus/RSU lump be captured if separation lands after the next September date.
+    const acceptanceMonths = (s.mode === 'post' ? s.offerPost.acceptanceMonthsFromNow : s.offerPre.acceptanceMonthsFromNow) || 0;
+    const vrpSeparationYears = Math.max(0, Math.min(stayWorkYears, acceptanceMonths / 12));
     const vrpRes = project({
       startCashAtSeparation: vrpStart,
-      separationYears: 0,
+      separationYears: vrpSeparationYears,
       workYears: 0,
       gapYears: 0,
       employerHealthMonths: employerBridgeMonths,
@@ -1054,6 +1083,8 @@
       body.appendChild(g1);
       body.appendChild(checkField('COBRA paid by employer?', () => o.cobraPaid, v => o.cobraPaid = v,
         'If the employer pays COBRA premiums, the healthcare bridge counts at full value. If self-paid, it is mostly access — not value.'));
+      body.appendChild(sliderField('Acceptance window → separation (months from now)', () => o.acceptanceMonthsFromNow, v => o.acceptanceMonthsFromNow = v, 0, 12, 1, v => v.toFixed(0) + ' mo',
+        'How long until your last day under the offer. VRP offers commonly include a ~30-day acceptance window after which you separate. This date determines whether the next September bonus + RSU tranche is captured: if separation lands AFTER next September you keep that lump; if BEFORE, it is forfeited.'));
     } else {
       const o = state.offerPost;
       body.appendChild(el('div', { class: 'sec' }, 'ACTUAL OFFER TERMS'));
@@ -1091,6 +1122,8 @@
       disableIfVestingUnlocked(vestField);
       g1.appendChild(vestField);
       body.appendChild(g1);
+      body.appendChild(sliderField('Acceptance window → separation (months from now)', () => o.acceptanceMonthsFromNow, v => o.acceptanceMonthsFromNow = v, 0, 12, 1, v => v.toFixed(0) + ' mo',
+        'How long until your last day under this actual offer. The acceptance window most VRP letters include is around 30 days. This date determines whether the next September bonus + RSU tranche is captured: if separation lands AFTER next September you keep that lump; if BEFORE, it is forfeited.'));
     }
 
     body.appendChild(el('div', { class: 'sec' }, 'COMPUTED'));
