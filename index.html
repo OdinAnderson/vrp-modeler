@@ -1,0 +1,1035 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VRP OFFER MODELER · MODEL YOUR DECISION WITH CLARITY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --cyber-black: #050505;
+      --cyber-gray:  #0a0a0a;
+      --cyber-panel: #0f1117;
+      --cyber-line:  #1b2030;
+      --neon-cyan:   #00f3ff;
+      --neon-magenta:#f0f;
+      --neon-green:  #0f0;
+      --neon-amber:  #ff9f43;
+      --neon-warm:   #ffa502;
+      --neon-red:    #ff3355;
+      --text:        #e6f1ff;
+      --text-dim:    #7c8aa1;
+      --text-faint:  #4a5565;
+      --font-display:'Orbitron', system-ui, sans-serif;
+      --font-mono:   'Share Tech Mono', ui-monospace, Consolas, monospace;
+      --font-serif:  'Instrument Serif', Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cyber-black); color: var(--text); }
+    body {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(0,243,255,0.08), transparent 60%),
+        radial-gradient(ellipse 60% 50% at 100% 100%, rgba(255,0,255,0.06), transparent 60%),
+        var(--cyber-black);
+      background-attachment: fixed;
+    }
+
+    /* Subtle scanline overlay */
+    body::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      background: repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0 1px, transparent 1px 3px);
+      mix-blend-mode: overlay;
+    }
+
+    a { color: var(--neon-cyan); text-decoration: none; }
+    a:hover { text-shadow: 0 0 8px var(--neon-cyan); }
+
+    /* HEADER */
+    header.app {
+      position: sticky; top: 0; z-index: 10;
+      border-bottom: 1px solid var(--cyber-line);
+      background: rgba(5,5,5,0.85);
+      backdrop-filter: blur(8px);
+      padding: 14px 24px;
+    }
+    .app-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; }
+    .brand { display: flex; align-items: baseline; gap: 14px; }
+    .brand .logo {
+      font-family: var(--font-display); font-weight: 900; letter-spacing: 0.18em;
+      font-size: 20px; color: var(--neon-cyan); text-shadow: 0 0 12px rgba(0,243,255,0.5);
+    }
+    .brand .tag {
+      font-family: var(--font-serif); font-style: italic; font-size: 16px; color: var(--text-dim);
+    }
+    .mode-toggle { display: inline-flex; border: 1px solid var(--cyber-line); border-radius: 0; }
+    .mode-toggle button {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.18em; font-size: 11px;
+      padding: 10px 16px; background: transparent; color: var(--text-dim); border: 0; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mode-toggle button.active {
+      background: var(--neon-cyan); color: var(--cyber-black);
+      box-shadow: 0 0 16px rgba(0,243,255,0.5), inset 0 0 0 1px var(--neon-cyan);
+    }
+    .mode-toggle button:not(.active):hover { color: var(--neon-cyan); }
+
+    /* HERO BAND */
+    .hero {
+      position: relative; z-index: 2;
+      max-width: 1400px; margin: 0 auto; padding: 36px 24px 12px;
+      overflow: hidden;
+    }
+    .hero h1 {
+      font-family: var(--font-display); font-weight: 900;
+      font-size: clamp(28px, 5.5vw, 64px);
+      letter-spacing: 0.04em; line-height: 0.95;
+      margin: 0; color: var(--text);
+      white-space: nowrap; overflow: hidden;
+    }
+    .hero h1 .ghost { color: transparent; -webkit-text-stroke: 1px var(--cyber-line); }
+    .hero h1 .neon  { color: var(--neon-cyan); text-shadow: 0 0 24px rgba(0,243,255,0.4); }
+    .hero h1 .magenta { color: var(--neon-magenta); text-shadow: 0 0 24px rgba(255,0,255,0.35); }
+    .hero p.lede {
+      font-family: var(--font-serif); font-style: italic; font-size: clamp(18px, 2vw, 26px);
+      color: var(--text-dim); margin: 18px 0 0; max-width: 720px;
+    }
+
+    /* MAIN GRID */
+    main {
+      position: relative; z-index: 2;
+      max-width: 1400px; margin: 0 auto; padding: 24px;
+      display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 24px;
+    }
+    @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+    /* PANEL */
+    .panel {
+      background: linear-gradient(180deg, rgba(15,17,23,0.9), rgba(10,10,10,0.9));
+      border: 1px solid var(--cyber-line);
+      padding: 0;
+    }
+    .panel + .panel { margin-top: 24px; }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-bottom: 1px solid var(--cyber-line);
+      background: rgba(0,0,0,0.4);
+    }
+    .panel-head h2 {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.22em;
+      font-size: 12px; margin: 0; color: var(--neon-cyan);
+    }
+    .panel-head .meta {
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0.1em;
+    }
+    .panel-body { padding: 18px; }
+
+    /* FORM */
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px 16px; }
+    @media (max-width: 600px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.16em;
+      font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .tip {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 1px solid var(--cyber-line); color: var(--text-faint);
+      font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+      letter-spacing: 0; cursor: help; position: relative; user-select: none;
+      transition: all 0.15s;
+    }
+    .tip:hover { color: var(--neon-cyan); border-color: var(--neon-cyan); box-shadow: 0 0 8px rgba(0,243,255,0.4); }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute; left: 50%; bottom: calc(100% + 8px);
+      transform: translateX(-50%);
+      background: var(--cyber-black); color: var(--text);
+      border: 1px solid var(--neon-cyan);
+      box-shadow: 0 0 16px rgba(0,243,255,0.3);
+      padding: 8px 10px; width: max-content; max-width: 260px;
+      font-family: var(--font-mono); font-size: 11px; line-height: 1.45;
+      letter-spacing: 0.02em; text-transform: none; text-align: left;
+      white-space: normal; pointer-events: none;
+      opacity: 0; visibility: hidden; transition: opacity 0.15s;
+      z-index: 50;
+    }
+    .tip::before {
+      content: ""; position: absolute; left: 50%; bottom: calc(100% + 2px);
+      transform: translateX(-50%);
+      border: 5px solid transparent; border-top-color: var(--neon-cyan);
+      opacity: 0; visibility: hidden; transition: opacity 0.15s;
+      z-index: 50;
+    }
+    .tip:hover::after, .tip:hover::before, .tip:focus::after, .tip:focus::before {
+      opacity: 1; visibility: visible;
+    }
+    .field input, .field select {
+      background: var(--cyber-black); color: var(--text);
+      border: 1px solid var(--cyber-line); padding: 9px 10px;
+      font-family: var(--font-mono); font-size: 14px; outline: none;
+      transition: all 0.15s;
+    }
+    .field input:focus, .field select:focus {
+      border-color: var(--neon-cyan); box-shadow: 0 0 0 1px var(--neon-cyan), 0 0 12px rgba(0,243,255,0.2);
+    }
+    .field .row { display: flex; align-items: center; gap: 10px; }
+    .field input[type="range"] {
+      -webkit-appearance: none; appearance: none; padding: 0;
+      background: linear-gradient(90deg, var(--neon-cyan) 0 var(--pct, 0%), var(--cyber-line) var(--pct, 0%) 100%);
+      height: 4px; border: 0; cursor: pointer;
+    }
+    .field input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 0;
+      background: var(--neon-cyan); border: 1px solid var(--cyber-black);
+      box-shadow: 0 0 8px var(--neon-cyan); cursor: pointer;
+    }
+    .field input[type="range"]::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 0;
+      background: var(--neon-cyan); border: 1px solid var(--cyber-black);
+      box-shadow: 0 0 8px var(--neon-cyan); cursor: pointer;
+    }
+    .val { font-family: var(--font-mono); color: var(--neon-cyan); min-width: 64px; text-align: right; font-size: 13px; }
+    .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+    .check input { accent-color: var(--neon-cyan); }
+
+    /* SECTION DIVIDER */
+    .sec {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.22em;
+      font-size: 11px; color: var(--neon-magenta); margin: 18px 0 10px;
+      padding-bottom: 6px; border-bottom: 1px dashed var(--cyber-line);
+    }
+    .sec:first-child { margin-top: 0; }
+
+    /* CARDS */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .card {
+      border: 1px solid var(--cyber-line); padding: 14px;
+      background: rgba(0,0,0,0.4); position: relative; overflow: hidden;
+    }
+    .card.stay     { border-left: 3px solid var(--neon-cyan); }
+    .card.layoff   { border-left: 3px solid var(--neon-amber); }
+    .card.vrp      { border-left: 3px solid var(--neon-magenta); }
+    .card.breakpt  { border-left: 3px solid var(--neon-green); }
+    .card h3 {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.18em;
+      font-size: 11px; margin: 0 0 8px; color: var(--text-dim);
+    }
+    .card .big {
+      font-family: var(--font-display); font-weight: 900; font-size: 24px; color: var(--text);
+      letter-spacing: 0.02em; line-height: 1.1;
+    }
+    .card .sub { font-size: 11px; color: var(--text-faint); margin-top: 4px; letter-spacing: 0.04em; }
+    .card .kv { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-top: 1px dotted var(--cyber-line); }
+    .card .kv:first-of-type { margin-top: 8px; }
+    .card .kv span:last-child { color: var(--neon-cyan); }
+
+    /* CHARTS */
+    .chart-wrap { background: rgba(0,0,0,0.5); border: 1px solid var(--cyber-line); padding: 14px; }
+    .chart-title {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.2em;
+      font-size: 11px; color: var(--text-dim); margin-bottom: 10px;
+    }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 12px; }
+    .bar-row .lbl {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.14em; font-size: 10px;
+      width: 70px; color: var(--text-dim);
+    }
+    .bar-row .bar { flex: 1; height: 18px; background: var(--cyber-black); border: 1px solid var(--cyber-line); position: relative; overflow: hidden; }
+    .bar-row .bar .fill { height: 100%; transition: width 0.3s; box-shadow: inset 0 0 8px rgba(0,0,0,0.4); }
+    .bar-row .bar .fill.stay   { background: linear-gradient(90deg, transparent, var(--neon-cyan)); }
+    .bar-row .bar .fill.layoff { background: linear-gradient(90deg, transparent, var(--neon-amber)); }
+    .bar-row .bar .fill.vrp    { background: linear-gradient(90deg, transparent, var(--neon-magenta)); }
+    .bar-row .amt { width: 110px; text-align: right; color: var(--text); font-family: var(--font-mono); }
+
+    /* TRAFFIC LIGHT */
+    .verdict {
+      display: flex; align-items: center; gap: 14px; padding: 14px;
+      border: 1px solid var(--cyber-line); background: rgba(0,0,0,0.6); margin-top: 12px;
+    }
+    .light {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid currentColor; box-shadow: 0 0 18px currentColor, inset 0 0 8px rgba(0,0,0,0.5);
+      flex-shrink: 0;
+    }
+    .light.green  { color: var(--neon-green); background: radial-gradient(circle at 35% 35%, var(--neon-green), #050); }
+    .light.yellow { color: var(--neon-amber); background: radial-gradient(circle at 35% 35%, var(--neon-amber), #530); }
+    .light.red    { color: var(--neon-red);   background: radial-gradient(circle at 35% 35%, var(--neon-red), #500); }
+    .verdict .vlabel {
+      font-family: var(--font-display); font-weight: 900; letter-spacing: 0.16em;
+      font-size: 18px;
+    }
+    .verdict .vlabel.green  { color: var(--neon-green);  text-shadow: 0 0 12px var(--neon-green); }
+    .verdict .vlabel.yellow { color: var(--neon-amber);  text-shadow: 0 0 12px var(--neon-amber); }
+    .verdict .vlabel.red    { color: var(--neon-red);    text-shadow: 0 0 12px var(--neon-red); }
+    .verdict .vsub { color: var(--text-dim); font-size: 12px; }
+
+    /* BUTTONS */
+    .btn {
+      font-family: var(--font-display); font-weight: 700; letter-spacing: 0.18em; font-size: 11px;
+      padding: 10px 16px; background: transparent; color: var(--neon-cyan);
+      border: 1px solid var(--neon-cyan); cursor: pointer; transition: all 0.15s;
+      text-transform: uppercase;
+    }
+    .btn:hover { background: var(--neon-cyan); color: var(--cyber-black); box-shadow: 0 0 16px rgba(0,243,255,0.4); }
+    .btn.alt { color: var(--neon-magenta); border-color: var(--neon-magenta); }
+    .btn.alt:hover { background: var(--neon-magenta); color: var(--cyber-black); box-shadow: 0 0 16px rgba(255,0,255,0.4); }
+    .btn.ghost { color: var(--text-dim); border-color: var(--cyber-line); }
+    .btn.ghost:hover { color: var(--text); border-color: var(--text-dim); background: transparent; box-shadow: none; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* FOOTER */
+    footer {
+      position: relative; z-index: 2;
+      max-width: 1400px; margin: 24px auto 0; padding: 24px;
+      border-top: 1px solid var(--cyber-line);
+      color: var(--text-faint); font-size: 11px; letter-spacing: 0.1em;
+      display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    }
+    footer .privacy { color: var(--neon-green); text-shadow: 0 0 8px rgba(0,255,0,0.3); }
+
+    /* MISC */
+    .pill {
+      display: inline-block; padding: 2px 8px; border: 1px solid var(--cyber-line);
+      font-size: 10px; letter-spacing: 0.18em; font-family: var(--font-display); font-weight: 700;
+      color: var(--text-dim);
+    }
+    .pill.live { color: var(--neon-green); border-color: var(--neon-green); text-shadow: 0 0 6px var(--neon-green); }
+
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; }
+    .legend .stay::before   { background: var(--neon-cyan);    box-shadow: 0 0 6px var(--neon-cyan); }
+    .legend .layoff::before { background: var(--neon-amber);   box-shadow: 0 0 6px var(--neon-amber); }
+    .legend .vrp::before    { background: var(--neon-magenta); box-shadow: 0 0 6px var(--neon-magenta); }
+  </style>
+</head>
+<body>
+  <header class="app">
+    <div class="app-row">
+      <div class="brand">
+        <div class="logo">VRP // OFFER MODELER</div>
+        <div class="tag">Model your VRP decision with clarity.</div>
+      </div>
+      <div class="mode-toggle" id="mode-toggle">
+        <button data-mode="pre" class="active">PRE-OFFER</button>
+        <button data-mode="post">POST-OFFER</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>
+      <span class="neon">TAKE</span>
+      <span class="ghost">·OR·</span>
+      <span class="magenta">STAY</span>
+      <span class="ghost">·DECIDE·</span>
+    </h1>
+    <p class="lede">Personal breakpoint analysis for voluntary retirement programs. All math runs in your browser. Nothing leaves this tab.</p>
+  </section>
+
+  <main>
+    <!-- LEFT COLUMN: INPUTS -->
+    <div>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>[01] PROFILE &amp; ASSUMPTIONS</h2>
+          <span class="meta">YOU</span>
+        </div>
+        <div class="panel-body" id="profile-body"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>[02] OFFER DEFINITION</h2>
+          <span class="meta" id="offer-mode-label">PRE-OFFER MODE</span>
+        </div>
+        <div class="panel-body" id="offer-body"></div>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN: OUTPUTS -->
+    <div>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>[03] SCENARIO OUTPUTS</h2>
+          <span class="pill live">LIVE</span>
+        </div>
+        <div class="panel-body">
+          <div class="cards" id="cards"></div>
+          <div class="chart-wrap" style="margin-top:16px">
+            <div class="chart-title">NPV AT RETIREMENT AGE</div>
+            <div id="bars"></div>
+            <div class="legend">
+              <span class="stay">STAY</span><span class="layoff">LAYOFF</span><span class="vrp">VRP</span>
+            </div>
+          </div>
+          <div class="chart-wrap" style="margin-top:16px">
+            <div class="chart-title">PROJECTED PORTFOLIO BALANCE OVER TIME</div>
+            <svg id="line-chart" viewBox="0 0 800 280" preserveAspectRatio="none" style="width:100%;height:280px;"></svg>
+            <div class="legend">
+              <span class="stay">STAY</span><span class="layoff">LAYOFF</span><span class="vrp">VRP</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>[04] BREAKPOINT ANALYSIS</h2>
+          <span class="meta">SOLVE FOR INDIFFERENCE</span>
+        </div>
+        <div class="panel-body">
+          <div class="cards">
+            <div class="card breakpt">
+              <h3>BREAKPOINT CASH</h3>
+              <div class="big" id="bp-amount">—</div>
+              <div class="sub" id="bp-context">where NPV(VRP) ≈ NPV(Stay)</div>
+            </div>
+            <div class="card breakpt">
+              <h3>YOUR OFFER</h3>
+              <div class="big" id="bp-offer">—</div>
+              <div class="sub" id="bp-pct">— of breakpoint</div>
+            </div>
+            <div class="card breakpt">
+              <h3>COLLEGE FUNDING</h3>
+              <div class="big" id="bp-college">—</div>
+              <div class="sub">vs. required total</div>
+            </div>
+          </div>
+          <div class="verdict" id="verdict">
+            <div class="light green" id="vlight"></div>
+            <div>
+              <div class="vlabel green" id="vtext">TAKE</div>
+              <div class="vsub" id="vsub">—</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn" id="save-btn">SAVE SCENARIO</button>
+            <button class="btn alt" id="export-btn">EXPORT JSON</button>
+            <button class="btn alt" id="import-btn">IMPORT JSON</button>
+            <button class="btn ghost" id="reset-btn">RESET</button>
+            <input type="file" id="import-file" accept="application/json" style="display:none" />
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div>VRP // OFFER MODELER · v0.1 · CARE · CLARITY · CONTINUITY</div>
+    <div class="privacy">▮ ALL CALCULATIONS RUN IN YOUR BROWSER. NO DATA LEAVES THIS TAB.</div>
+  </footer>
+
+  <script>
+  // =====================================================================
+  // STATE
+  // =====================================================================
+  const DEFAULTS = {
+    mode: 'pre',
+    profile: {
+      age: 55,
+      retireAge: 65,
+      yearsService: 22,
+      salary: 180000,
+      bonusPct: 12,
+      rsuAnnual: 60000,
+      rsuUnvested: 120000,
+      spouseAge: 53,
+      collegeKids: 1,
+      collegeCostPer: 35000,
+      coverageType: 'family', // self|spouse|family
+      coverageCost: 12000,
+    },
+    assumptions: {
+      realReturnPct: 4,
+      inflationPct: 2.5,
+      taxRatePct: 28,
+      ssStartAge: 67,
+      retireSpending: 110000,
+    },
+    offerPre: {
+      cashMultipleX: 1.5,        // x salary
+      cashOverride: 0,           // 0 = use multiple
+      weeksPerYear: 2,
+      minWeeksBase: 12,
+      healthMonths: 12,
+      cobraPaid: true,
+      retirementBonus: 25000,
+      vestingMonths: 12,
+    },
+    offerPost: {
+      cashAmount: 280000,
+      healthMonths: 12,
+      healthType: 'cobra-paid', // cobra-paid|cobra-self|none
+      pensionCredits: 0,
+      vestingMonths: 6,
+    },
+    layoff: {
+      timeToJobMonths: 6,
+      severanceWeeksBase: 12,
+      severanceWeeksPerYear: 2,
+      healthMonths: 6,
+    },
+  };
+
+  let state = load() || JSON.parse(JSON.stringify(DEFAULTS));
+
+  function load() {
+    try { const s = localStorage.getItem('vrp:state'); return s ? JSON.parse(s) : null; } catch { return null; }
+  }
+  function save() { try { localStorage.setItem('vrp:state', JSON.stringify(state)); } catch {} }
+
+  // =====================================================================
+  // CORE CALCULATIONS
+  // =====================================================================
+  const HEALTH_VALUE_PER_MONTH = { self: 700, spouse: 1100, family: 1700 };
+
+  function computeOfferCash(s) {
+    if (s.mode === 'post') return s.offerPost.cashAmount;
+    const o = s.offerPre;
+    if (o.cashOverride && o.cashOverride > 0) return o.cashOverride;
+    const weekly = s.profile.salary / 52;
+    const weeks = o.minWeeksBase + o.weeksPerYear * s.profile.yearsService;
+    const weeksValue = weekly * weeks;
+    const multipleValue = s.profile.salary * o.cashMultipleX;
+    return Math.max(weeksValue, multipleValue) + (o.retirementBonus || 0);
+  }
+  function offerHealthMonths(s) { return s.mode === 'post' ? s.offerPost.healthMonths : s.offerPre.healthMonths; }
+  function offerVestingMonths(s) { return s.mode === 'post' ? s.offerPost.vestingMonths : s.offerPre.vestingMonths; }
+
+  function healthValuePerYear(s) {
+    return (HEALTH_VALUE_PER_MONTH[s.profile.coverageType] || 1000) * 12;
+  }
+
+  // FV of a single sum: PV * (1+r)^n
+  function fv(pv, ratePct, years) {
+    const r = ratePct / 100;
+    return pv * Math.pow(1 + r, years);
+  }
+  // FV of a series of annual additions a (made at end of each year), n years, rate r
+  function fvSeries(annual, ratePct, years) {
+    const r = ratePct / 100;
+    if (r === 0) return annual * years;
+    return annual * (Math.pow(1 + r, years) - 1) / r;
+  }
+
+  /**
+   * Build a per-year portfolio trajectory.
+   * Returns array of {year, age, balance} from now to a horizon (planned retire age + 25 yrs).
+   * Each scenario starts from a notional starting portfolio = 0 (we model marginal differences).
+   *  - Stay: contributes (salary*0.15 + rsuAnnual*0.5) per year while working, then withdraws retireSpending after retireAge.
+   *  - Layoff: severance up front, no contribs during gap, then assumed re-employment at 90% salary, contribs, then withdraws.
+   *  - VRP: cash up front (after tax), no salary contribs, withdraws to bridge to ssStartAge then SS reduces draw.
+   */
+  function projectScenarios(s) {
+    const r = s.assumptions.realReturnPct;
+    const horizonAge = s.profile.retireAge + 25;
+    const years = horizonAge - s.profile.age;
+    const tax = s.assumptions.taxRatePct / 100;
+    const annualSpend = s.assumptions.retireSpending;
+    const ssAnnual = Math.min(48000, s.profile.salary * 0.25); // crude SS estimate
+
+    const annualSavingsWhileWorking = s.profile.salary * 0.15 + s.profile.rsuAnnual * 0.5 + s.profile.salary * (s.profile.bonusPct/100) * 0.4;
+
+    function project(opts) {
+      const { startCash = 0, workYears = 0, workSalary = s.profile.salary, gapYears = 0 } = opts;
+      const out = []; let bal = startCash; let age = s.profile.age;
+      for (let y = 0; y <= years; y++) {
+        out.push({ year: y, age, balance: bal });
+        bal = bal * (1 + r/100);
+        if (y < gapYears) {
+          // gap: no contributions, slight drawdown for living costs
+          bal -= s.profile.salary * 0.4 * (1 - tax);
+        } else if (y - gapYears < workYears) {
+          // working
+          const annSave = workSalary * 0.15 + s.profile.rsuAnnual * 0.5 * (workSalary / s.profile.salary);
+          bal += annSave;
+        } else {
+          // retired
+          const draw = annualSpend - (age >= s.assumptions.ssStartAge ? ssAnnual : 0);
+          bal -= Math.max(0, draw);
+        }
+        age++;
+      }
+      return out;
+    }
+
+    const stayWorkYears = Math.max(0, s.profile.retireAge - s.profile.age);
+    const stay = project({
+      startCash: 0,
+      workYears: stayWorkYears,
+      workSalary: s.profile.salary,
+      gapYears: 0,
+    });
+
+    // Layoff: severance baseline
+    const sev = s.profile.salary / 52 * (s.layoff.severanceWeeksBase + s.layoff.severanceWeeksPerYear * s.profile.yearsService);
+    const sevNet = sev * (1 - tax);
+    const gap = s.layoff.timeToJobMonths / 12;
+    const layoff = project({
+      startCash: sevNet,
+      workYears: Math.max(0, stayWorkYears - gap),
+      workSalary: s.profile.salary * 0.9,
+      gapYears: gap,
+    });
+
+    // VRP
+    const offerCash = computeOfferCash(s);
+    const offerCashNet = offerCash * (1 - tax);
+    const healthBridgeValue = (offerHealthMonths(s) / 12) * healthValuePerYear(s);
+    const vestingValue = (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
+    const vrpStart = offerCashNet + healthBridgeValue + vestingValue;
+    // Treat VRP as immediate retirement (no further work)
+    const vrp = project({
+      startCash: vrpStart,
+      workYears: 0,
+      workSalary: 0,
+      gapYears: 0,
+    });
+
+    return { stay, layoff, vrp, ssAnnual, offerCash, offerCashNet };
+  }
+
+  function npvAtRetirement(traj, s) {
+    const idx = Math.max(0, s.profile.retireAge - s.profile.age);
+    return traj[Math.min(idx, traj.length - 1)].balance;
+  }
+
+  function yearsFunded(traj, s) {
+    // years after retireAge until balance hits zero
+    const startIdx = s.profile.retireAge - s.profile.age;
+    let count = 0;
+    for (let i = startIdx; i < traj.length; i++) { if (traj[i].balance > 0) count++; else break; }
+    return count;
+  }
+
+  // Solve for breakpoint cash: VRP NPV(retireAge) ≈ Stay NPV(retireAge)
+  function breakpointCash(s) {
+    const stayNPV = npvAtRetirement(projectScenarios(s).stay, s);
+    // binary search on cash amount
+    let lo = 0, hi = s.profile.salary * 10;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      const trial = JSON.parse(JSON.stringify(s));
+      trial.mode = 'post';
+      trial.offerPost.cashAmount = mid;
+      trial.offerPost.healthMonths = s.mode === 'post' ? s.offerPost.healthMonths : s.offerPre.healthMonths;
+      trial.offerPost.vestingMonths = s.mode === 'post' ? s.offerPost.vestingMonths : s.offerPre.vestingMonths;
+      const vrpNPV = npvAtRetirement(projectScenarios(trial).vrp, s);
+      if (vrpNPV < stayNPV) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  function collegeRequired(s) {
+    return (s.profile.collegeKids || 0) * (s.profile.collegeCostPer || 0) * 4;
+  }
+
+  // =====================================================================
+  // FORMATTERS
+  // =====================================================================
+  const fmtUSD = n => (n < 0 ? '-' : '') + '$' + Math.round(Math.abs(n)).toLocaleString();
+  const fmtUSDk = n => {
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n/1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return (n/1e3).toFixed(0) + 'k';
+    return Math.round(n).toString();
+  };
+  const fmtPct = n => (n*100).toFixed(0) + '%';
+
+  // =====================================================================
+  // RENDERING
+  // =====================================================================
+  function el(tag, attrs = {}, ...children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') e.className = v;
+      else if (k === 'html') e.innerHTML = v;
+      else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
+      else if (v !== undefined && v !== null) e.setAttribute(k, v);
+    }
+    for (const c of children) {
+      if (c == null) continue;
+      e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return e;
+  }
+
+  function makeLabel(text, tip) {
+    const lbl = el('label', {}, text);
+    if (tip) {
+      const t = el('span', { class: 'tip', 'data-tip': tip, tabindex: '0', 'aria-label': tip }, '?');
+      lbl.appendChild(t);
+    }
+    return lbl;
+  }
+  function numberField(label, get, set, opts = {}, tip) {
+    const wrap = el('div', { class: 'field' });
+    wrap.appendChild(makeLabel(label, tip));
+    const input = el('input', { type: 'number', value: String(get()), step: opts.step || '1', min: opts.min ?? '', title: tip || '' });
+    input.addEventListener('input', () => { const v = parseFloat(input.value); set(isNaN(v) ? 0 : v); rerenderOutputs(); });
+    wrap.appendChild(input);
+    return wrap;
+  }
+  function sliderField(label, get, set, min, max, step, fmt, tip) {
+    const wrap = el('div', { class: 'field' });
+    wrap.appendChild(makeLabel(label, tip));
+    const row = el('div', { class: 'row' });
+    const input = el('input', { type: 'range', min, max, step, value: String(get()), title: tip || '' });
+    const val = el('div', { class: 'val' }, fmt(get()));
+    input.style.setProperty('--pct', ((get() - min) / (max - min) * 100) + '%');
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value); set(v);
+      val.textContent = fmt(v);
+      input.style.setProperty('--pct', ((v - min) / (max - min) * 100) + '%');
+      rerenderOutputs();
+    });
+    row.appendChild(input); row.appendChild(val);
+    wrap.appendChild(row);
+    return wrap;
+  }
+  function selectField(label, get, set, options, tip) {
+    const wrap = el('div', { class: 'field' });
+    wrap.appendChild(makeLabel(label, tip));
+    const sel = el('select', { title: tip || '' });
+    for (const [v, t] of options) {
+      const o = el('option', { value: v }, t);
+      if (v === get()) o.setAttribute('selected', 'selected');
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => { set(sel.value); rerenderOutputs(); });
+    wrap.appendChild(sel);
+    return wrap;
+  }
+  function checkField(label, get, set, tip) {
+    const wrap = el('div', { class: 'field' });
+    wrap.appendChild(makeLabel(label, tip));
+    const lab = el('label', { class: 'check' });
+    const input = el('input', { type: 'checkbox', title: tip || '' });
+    if (get()) input.setAttribute('checked', 'checked');
+    input.addEventListener('change', () => { set(input.checked); rerenderOutputs(); });
+    lab.appendChild(input);
+    lab.appendChild(document.createTextNode(get() ? 'Yes' : 'No'));
+    wrap.appendChild(lab);
+    return wrap;
+  }
+
+  function renderProfile() {
+    const body = document.getElementById('profile-body');
+    body.innerHTML = '';
+    const p = state.profile, a = state.assumptions;
+
+    body.appendChild(el('div', { class: 'sec' }, 'DEMOGRAPHICS'));
+    const g1 = el('div', { class: 'grid2' });
+    g1.appendChild(numberField('Current age', () => p.age, v => p.age = v, {},
+      'Your age today. Used as the starting point for every projection.'));
+    g1.appendChild(numberField('Planned retirement age', () => p.retireAge, v => p.retireAge = v, {},
+      'The age you would stop working if you stayed. Defines the STAY scenario\u2019s work horizon and when withdrawals begin.'));
+    g1.appendChild(numberField('Spouse / partner age', () => p.spouseAge, v => p.spouseAge = v, {},
+      'Used for healthcare bridge sizing and (future) joint-life longevity assumptions.'));
+    g1.appendChild(numberField('Years of service', () => p.yearsService, v => p.yearsService = v, {},
+      'Tenure with current employer. Drives severance formulas (weeks per year of service) and most VRP cash formulas.'));
+    body.appendChild(g1);
+
+    body.appendChild(el('div', { class: 'sec' }, 'EMPLOYMENT'));
+    const g2 = el('div', { class: 'grid2' });
+    g2.appendChild(numberField('Current annual salary ($)', () => p.salary, v => p.salary = v, { step: 1000 },
+      'Base salary, gross. Anchors VRP cash multiples, severance value, and per-year savings rate.'));
+    g2.appendChild(numberField('Bonus (%)', () => p.bonusPct, v => p.bonusPct = v, {},
+      'Target annual bonus as a percent of salary. About 40% of bonus is treated as savings in the STAY scenario.'));
+    g2.appendChild(numberField('RSU annual value ($)', () => p.rsuAnnual, v => p.rsuAnnual = v, { step: 1000 },
+      'Estimated value of RSUs vesting per year. About 50% is assumed to be saved in the STAY scenario.'));
+    g2.appendChild(numberField('RSU unvested value ($)', () => p.rsuUnvested, v => p.rsuUnvested = v, { step: 1000 },
+      'Total value of unvested RSUs you would forfeit by leaving (unless the offer continues vesting).'));
+    body.appendChild(g2);
+
+    body.appendChild(el('div', { class: 'sec' }, 'FAMILY'));
+    const g3 = el('div', { class: 'grid2' });
+    g3.appendChild(numberField('Dependents in college', () => p.collegeKids, v => p.collegeKids = v, {},
+      'Number of children in (or about to enter) college. Used to size 4-year college funding requirement.'));
+    g3.appendChild(numberField('Annual college cost / dep ($)', () => p.collegeCostPer, v => p.collegeCostPer = v, { step: 1000 },
+      'All-in annual cost per dependent (tuition + room/board). Multiplied by 4 years per dependent.'));
+    body.appendChild(g3);
+
+    body.appendChild(el('div', { class: 'sec' }, 'HEALTH'));
+    const g4 = el('div', { class: 'grid2' });
+    g4.appendChild(selectField('Coverage type', () => p.coverageType, v => p.coverageType = v, [
+      ['self', 'Self only'], ['spouse', 'Self + spouse'], ['family', 'Family']
+    ], 'Who is on your employer plan today. Used to value the healthcare bridge an offer provides (~$700/$1,100/$1,700 per month).'));
+    g4.appendChild(numberField('Annual employer cost share ($)', () => p.coverageCost, v => p.coverageCost = v, { step: 500 },
+      'What the employer pays per year toward your health premiums (optional override of the default per-coverage estimate).'));
+    body.appendChild(g4);
+
+    body.appendChild(el('div', { class: 'sec' }, 'FINANCIAL ASSUMPTIONS'));
+    body.appendChild(sliderField('Investment return \u2014 real (%)', () => a.realReturnPct, v => a.realReturnPct = v, 0, 10, 0.25, v => v.toFixed(2) + '%',
+      'Expected portfolio return after inflation. 3\u20134% is a common conservative assumption for a balanced retirement portfolio.'));
+    body.appendChild(sliderField('Inflation (%)', () => a.inflationPct, v => a.inflationPct = v, 0, 8, 0.25, v => v.toFixed(2) + '%',
+      'Expected long-run inflation rate. Most figures here are already in real (today\u2019s) dollars; this is informational.'));
+    body.appendChild(sliderField('Effective tax rate (%)', () => a.taxRatePct, v => a.taxRatePct = v, 0, 50, 1, v => v.toFixed(0) + '%',
+      'Combined federal + state effective rate applied to severance and VRP cash. A lump-sum payout often pushes you into a higher bracket \u2014 estimate accordingly.'));
+    body.appendChild(sliderField('Social Security start age', () => a.ssStartAge, v => a.ssStartAge = v, 62, 70, 1, v => v.toFixed(0),
+      'When you plan to claim Social Security. Earlier = smaller benefit; later = larger benefit. Used to reduce required portfolio withdrawals after this age.'));
+    body.appendChild(numberField('Planned annual retirement spending ($)', () => a.retireSpending, v => a.retireSpending = v, { step: 5000 },
+      'Your target annual household spending in retirement, in today\u2019s dollars. The withdrawal rate that keeps your portfolio funded.'));
+
+    body.appendChild(el('div', { class: 'sec' }, 'LAYOFF BASELINE'));
+    body.appendChild(sliderField('Time to new job (months)', () => state.layoff.timeToJobMonths, v => state.layoff.timeToJobMonths = v, 0, 24, 1, v => v.toFixed(0) + ' mo',
+      'How long you assume it would take to land comparable employment after an involuntary layoff. Drives portfolio drawdown during the gap.'));
+    const gl = el('div', { class: 'grid3' });
+    gl.appendChild(numberField('Severance base (weeks)', () => state.layoff.severanceWeeksBase, v => state.layoff.severanceWeeksBase = v, {},
+      'Fixed weeks of pay in your employer\u2019s severance formula, before the per-year-of-service component. Often 8\u201312.'));
+    gl.appendChild(numberField('Severance / year svc (wks)', () => state.layoff.severanceWeeksPerYear, v => state.layoff.severanceWeeksPerYear = v, {},
+      'Additional weeks of pay per year of service under your employer\u2019s involuntary severance plan. Often 1\u20132.'));
+    gl.appendChild(numberField('Health continuation (months)', () => state.layoff.healthMonths, v => state.layoff.healthMonths = v, {},
+      'Months of subsidized healthcare provided under an involuntary layoff (typically less generous than a VRP).'));
+    body.appendChild(gl);
+  }
+
+  function renderOffer() {
+    const body = document.getElementById('offer-body');
+    body.innerHTML = '';
+    document.getElementById('offer-mode-label').textContent = state.mode === 'pre' ? 'PRE-OFFER MODE' : 'POST-OFFER MODE';
+
+    if (state.mode === 'pre') {
+      const o = state.offerPre;
+      body.appendChild(el('div', { class: 'sec' }, 'HYPOTHETICAL OFFER'));
+      body.appendChild(sliderField('Cash multiple of salary', () => o.cashMultipleX, v => o.cashMultipleX = v, 0.25, 3, 0.25, v => v.toFixed(2) + 'x',
+        'Hypothetical lump-sum cash, expressed as a multiple of your annual salary. The model uses whichever is greater: this multiple, or weeks-base + weeks/year-of-service.'));
+      const g1 = el('div', { class: 'grid2' });
+      g1.appendChild(numberField('Cash override ($, 0 = use multiple)', () => o.cashOverride, v => o.cashOverride = v, { step: 5000 },
+        'If you want to test a specific dollar amount instead of a salary multiple, enter it here. Set to 0 to use the multiple/weeks formula.'));
+      g1.appendChild(numberField('Additional retirement bonus ($)', () => o.retirementBonus, v => o.retirementBonus = v, { step: 1000 },
+        'Optional one-time supplemental retirement contribution included in the hypothetical package (e.g., extra 401(k) or pension top-up).'));
+      g1.appendChild(numberField('Weeks per year of service', () => o.weeksPerYear, v => o.weeksPerYear = v, {},
+        'Weeks of pay added per year of service under the hypothetical formula (e.g., 2 weeks/yr is common in tech VRPs).'));
+      g1.appendChild(numberField('Minimum weeks base', () => o.minWeeksBase, v => o.minWeeksBase = v, {},
+        'Floor of weeks of pay regardless of tenure (e.g., 12 weeks). Total weeks = base + (weeks/yr × years of service).'));
+      g1.appendChild(numberField('Healthcare coverage (months)', () => o.healthMonths, v => o.healthMonths = v, {},
+        'Months of subsidized healthcare the offer provides. Valued at coverage-tier rates and added to the VRP scenario.'));
+      g1.appendChild(numberField('Stock vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
+        'Months of continued RSU/equity vesting after separation. Valued pro-rata against your annual RSU value.'));
+      body.appendChild(g1);
+      body.appendChild(checkField('COBRA paid by employer?', () => o.cobraPaid, v => o.cobraPaid = v,
+        'If the employer pays COBRA premiums, the healthcare bridge counts at full value. If self-paid, it is mostly access — not value.'));
+    } else {
+      const o = state.offerPost;
+      body.appendChild(el('div', { class: 'sec' }, 'ACTUAL OFFER TERMS'));
+      const g1 = el('div', { class: 'grid2' });
+      g1.appendChild(numberField('Cash amount ($)', () => o.cashAmount, v => o.cashAmount = v, { step: 5000 },
+        'The actual gross lump-sum cash amount in the offer letter (before tax). Tax is applied using your effective rate above.'));
+      g1.appendChild(numberField('Pension / retirement credits ($)', () => o.pensionCredits, v => o.pensionCredits = v, { step: 1000 },
+        'Present value of any added pension years, retiree medical credits, or 401(k) top-up included in the offer.'));
+      g1.appendChild(numberField('Healthcare duration (months)', () => o.healthMonths, v => o.healthMonths = v, {},
+        'Months of healthcare coverage the actual offer provides. Bridges the gap to Medicare or the next employer plan.'));
+      g1.appendChild(selectField('Healthcare type', () => o.healthType, v => o.healthType = v, [
+        ['cobra-paid', 'COBRA — employer paid'], ['cobra-self', 'COBRA — self paid'], ['none', 'None']
+      ], 'Employer-paid COBRA is worth the most. Self-paid COBRA gives you access but not value. None is unusual but possible.'));
+      g1.appendChild(numberField('Vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
+        'How many additional months of RSU vesting the offer preserves. Multiply by your annual RSU value to see what it is worth.'));
+      body.appendChild(g1);
+    }
+
+    body.appendChild(el('div', { class: 'sec' }, 'COMPUTED'));
+    const summary = el('div', { class: 'cards', id: 'offer-computed' });
+    body.appendChild(summary);
+    renderOfferComputed();
+  }
+
+  function renderOfferComputed() {
+    const summary = document.getElementById('offer-computed');
+    if (!summary) return;
+    const offerCash = computeOfferCash(state);
+    summary.innerHTML = '';
+    summary.appendChild(card('vrp', 'OFFER CASH (gross)', fmtUSD(offerCash)));
+    summary.appendChild(card('vrp', 'OFFER CASH (net)',   fmtUSD(offerCash * (1 - state.assumptions.taxRatePct/100))));
+    summary.appendChild(card('vrp', 'HEALTH BRIDGE',      fmtUSD(offerHealthMonths(state)/12 * healthValuePerYear(state))));
+  }
+
+  function card(cls, title, big, sub, extras) {
+    const c = el('div', { class: 'card ' + cls });
+    c.appendChild(el('h3', {}, title));
+    c.appendChild(el('div', { class: 'big' }, big));
+    if (sub) c.appendChild(el('div', { class: 'sub' }, sub));
+    if (extras) for (const [k, v] of extras) {
+      const kv = el('div', { class: 'kv' });
+      kv.appendChild(el('span', {}, k));
+      kv.appendChild(el('span', {}, v));
+      c.appendChild(kv);
+    }
+    return c;
+  }
+
+  function renderOutputs() {
+    const proj = projectScenarios(state);
+    const stayNPV   = npvAtRetirement(proj.stay, state);
+    const layoffNPV = npvAtRetirement(proj.layoff, state);
+    const vrpNPV    = npvAtRetirement(proj.vrp, state);
+
+    // Cards
+    const cards = document.getElementById('cards');
+    cards.innerHTML = '';
+    cards.appendChild(card('stay', 'STAY', fmtUSD(stayNPV), `${yearsFunded(proj.stay, state)} yrs funded post-retire`, [
+      ['Work yrs left', String(Math.max(0, state.profile.retireAge - state.profile.age))],
+      ['Annual save', fmtUSD(state.profile.salary*0.15 + state.profile.rsuAnnual*0.5)],
+    ]));
+    cards.appendChild(card('layoff', 'LAYOFF', fmtUSD(layoffNPV), `${yearsFunded(proj.layoff, state)} yrs funded`, [
+      ['Severance (gross)', fmtUSD(state.profile.salary/52 * (state.layoff.severanceWeeksBase + state.layoff.severanceWeeksPerYear*state.profile.yearsService))],
+      ['Gap (months)', String(state.layoff.timeToJobMonths)],
+    ]));
+    cards.appendChild(card('vrp', 'VRP', fmtUSD(vrpNPV), `${yearsFunded(proj.vrp, state)} yrs funded`, [
+      ['Offer cash (net)', fmtUSD(proj.offerCashNet)],
+      ['Health bridge', fmtUSD(offerHealthMonths(state)/12 * healthValuePerYear(state))],
+    ]));
+
+    // Bars
+    const max = Math.max(Math.abs(stayNPV), Math.abs(layoffNPV), Math.abs(vrpNPV), 1);
+    const bars = document.getElementById('bars');
+    bars.innerHTML = '';
+    for (const [lbl, val, cls] of [['STAY', stayNPV, 'stay'],['LAYOFF', layoffNPV, 'layoff'],['VRP', vrpNPV, 'vrp']]) {
+      const row = el('div', { class: 'bar-row' });
+      row.appendChild(el('div', { class: 'lbl' }, lbl));
+      const bar = el('div', { class: 'bar' });
+      const fill = el('div', { class: 'fill ' + cls });
+      fill.style.width = (Math.max(0, val) / max * 100) + '%';
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      row.appendChild(el('div', { class: 'amt' }, '$' + fmtUSDk(val)));
+      bars.appendChild(row);
+    }
+
+    // Line chart
+    drawLineChart(proj);
+
+    // Breakpoint
+    const bp = breakpointCash(state);
+    const offerCash = computeOfferCash(state);
+    const pct = bp > 0 ? offerCash / bp : 0;
+    document.getElementById('bp-amount').textContent = fmtUSD(bp);
+    document.getElementById('bp-context').textContent = `where NPV(VRP) ≈ NPV(Stay = ${state.profile.retireAge - state.profile.age} more yrs)`;
+    document.getElementById('bp-offer').textContent = fmtUSD(offerCash);
+    document.getElementById('bp-pct').textContent = `${(pct*100).toFixed(0)}% of breakpoint`;
+
+    const reqCollege = collegeRequired(state);
+    const collegeOK = vrpNPV > reqCollege;
+    document.getElementById('bp-college').textContent = reqCollege > 0 ? fmtUSD(reqCollege) : '—';
+
+    // Verdict
+    let label, sub, color;
+    if (pct >= 1.10)      { label = 'TAKE';        color = 'green';  sub = 'Offer comfortably exceeds your breakpoint.'; }
+    else if (pct >= 1.00) { label = 'LEAN TAKE';   color = 'green';  sub = 'Offer is at or above breakpoint.'; }
+    else if (pct >= 0.90) { label = 'LEAN STAY';   color = 'yellow'; sub = 'Offer is close — negotiate or weigh non-financials.'; }
+    else                  { label = 'STAY';        color = 'red';    sub = 'Offer is materially below your breakpoint.'; }
+
+    const lt = document.getElementById('vlight'); lt.className = 'light ' + color;
+    const vt = document.getElementById('vtext');  vt.className = 'vlabel ' + color; vt.textContent = label;
+    document.getElementById('vsub').textContent = sub;
+  }
+
+  function drawLineChart(proj) {
+    const svg = document.getElementById('line-chart');
+    const W = 800, H = 280, padL = 50, padR = 12, padT = 10, padB = 24;
+    const series = [
+      { data: proj.stay,   color: 'var(--neon-cyan)',    name: 'STAY' },
+      { data: proj.layoff, color: 'var(--neon-amber)',   name: 'LAYOFF' },
+      { data: proj.vrp,    color: 'var(--neon-magenta)', name: 'VRP' },
+    ];
+    const all = series.flatMap(s => s.data.map(d => d.balance));
+    const minV = Math.min(0, ...all);
+    const maxV = Math.max(...all, 1);
+    const n = proj.stay.length;
+    const xAt = i => padL + (W - padL - padR) * (i / Math.max(1, n - 1));
+    const yAt = v => padT + (H - padT - padB) * (1 - (v - minV) / (maxV - minV));
+
+    let svgHTML = '';
+    // grid
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + (H - padT - padB) * (i/4);
+      const v = maxV - (maxV - minV) * (i/4);
+      svgHTML += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#1b2030" stroke-width="1"/>`;
+      svgHTML += `<text x="${padL-6}" y="${y+4}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="end">$${fmtUSDk(v)}</text>`;
+    }
+    // zero line
+    if (minV < 0 && maxV > 0) {
+      const zy = yAt(0);
+      svgHTML += `<line x1="${padL}" y1="${zy}" x2="${W-padR}" y2="${zy}" stroke="#4a5565" stroke-dasharray="3,3"/>`;
+    }
+    // x ticks: ages
+    const ages = proj.stay.map(d => d.age);
+    for (let i = 0; i < ages.length; i += Math.ceil(ages.length / 6)) {
+      const x = xAt(i);
+      svgHTML += `<text x="${x}" y="${H-6}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="middle">${ages[i]}</text>`;
+    }
+    // retire age marker
+    const retireIdx = state.profile.retireAge - state.profile.age;
+    if (retireIdx >= 0 && retireIdx < n) {
+      const x = xAt(retireIdx);
+      svgHTML += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${H-padB}" stroke="#4a5565" stroke-dasharray="2,4"/>`;
+      svgHTML += `<text x="${x+4}" y="${padT+12}" fill="#7c8aa1" font-family="Share Tech Mono" font-size="10">RETIRE</text>`;
+    }
+    for (const s of series) {
+      const pts = s.data.map((d, i) => `${xAt(i)},${yAt(d.balance)}`).join(' ');
+      svgHTML += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${pts}" style="filter: drop-shadow(0 0 4px ${s.color});"/>`;
+    }
+    svg.innerHTML = svgHTML;
+  }
+
+  function rerender() { save(); renderProfile(); renderOffer(); renderOutputs(); }
+  function rerenderOutputs() { save(); renderOfferComputed(); renderOutputs(); }
+
+  // =====================================================================
+  // EVENTS
+  // =====================================================================
+  document.getElementById('mode-toggle').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    state.mode = b.dataset.mode;
+    document.querySelectorAll('#mode-toggle button').forEach(x => x.classList.toggle('active', x === b));
+    rerender();
+  });
+  document.getElementById('save-btn').addEventListener('click', () => { save(); flash('SAVED'); });
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    if (confirm('Reset all inputs to defaults?')) { state = JSON.parse(JSON.stringify(DEFAULTS)); save(); rerender(); }
+  });
+  document.getElementById('export-btn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'vrp-scenario.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+  document.getElementById('import-btn').addEventListener('click', () => document.getElementById('import-file').click());
+  document.getElementById('import-file').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try { state = JSON.parse(r.result); rerender(); flash('IMPORTED'); }
+      catch { alert('Invalid JSON'); }
+    };
+    r.readAsText(f);
+  });
+  function flash(msg) {
+    const t = el('div', { html: msg });
+    Object.assign(t.style, {
+      position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+      background: 'var(--neon-cyan)', color: '#000', padding: '10px 18px',
+      fontFamily: 'Orbitron', fontWeight: '900', letterSpacing: '0.18em', fontSize: '12px',
+      boxShadow: '0 0 24px rgba(0,243,255,0.5)', zIndex: 100,
+    });
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 1200);
+  }
+
+  // initial mode toggle state
+  document.querySelectorAll('#mode-toggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
+  rerender();
+  </script>
+</body>
+</html>
