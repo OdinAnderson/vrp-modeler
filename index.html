@@ -271,11 +271,13 @@
       font-family: var(--font-display); font-weight: 700; letter-spacing: 0.14em; font-size: 10px;
       width: 70px; color: var(--text-dim);
     }
-    .bar-row .bar { flex: 1; height: 18px; background: var(--cyber-black); border: 1px solid var(--cyber-line); position: relative; overflow: hidden; }
+    .bar-row .bar { flex: 1; height: 18px; background: var(--cyber-black); border: 1px solid var(--cyber-line); position: relative; overflow: hidden; display: flex; }
+    .bar-row .bar .axis { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-faint); }
     .bar-row .bar .fill { height: 100%; transition: width 0.3s; box-shadow: inset 0 0 8px rgba(0,0,0,0.4); }
     .bar-row .bar .fill.stay   { background: linear-gradient(90deg, transparent, var(--neon-cyan)); }
     .bar-row .bar .fill.layoff { background: linear-gradient(90deg, transparent, var(--neon-amber)); }
     .bar-row .bar .fill.vrp    { background: linear-gradient(90deg, transparent, var(--neon-magenta)); }
+    .bar-row .bar .fill.neg    { background: linear-gradient(270deg, transparent, var(--neon-red)); }
     .bar-row .amt { width: 110px; text-align: right; color: var(--text); font-family: var(--font-mono); }
 
     /* TRAFFIC LIGHT */
@@ -455,6 +457,25 @@
   // =====================================================================
   // STATE
   // =====================================================================
+  // ---- MODEL CONSTANTS (single source of truth, no magic numbers in math below) ----
+  const MODEL = {
+    SAVINGS_RATE_SALARY:   0.15,  // % of base pay assumed saved while working
+    SAVINGS_RATE_RSU:      0.5,   // % of annual RSU grant assumed saved
+    SAVINGS_RATE_BONUS:    0.4,   // % of annual bonus assumed saved
+    REEMPLOY_SALARY_PCT:   0.9,   // re-employment salary as % of current salary
+    GAP_LIVING_COST_PCT:   0.4,   // job-gap cost-of-living drawdown (% of salary, after tax)
+    SS_PCT_OF_SALARY:      0.25,  // crude Social Security base estimate as % of salary
+    SS_CAP:                48000, // annual SS cap
+    SS_FRA:                67,    // full retirement age for SS adjustment
+    HORIZON_YEARS_AFTER_RETIRE: 15,
+    MEDICARE_AGE:          65,
+  };
+  // SS adjustment for early/late claim: ~6%/yr early reduction, ~8%/yr late credit.
+  function ssClaimMultiplier(claimAge) {
+    if (claimAge <= MODEL.SS_FRA) return Math.max(0.5, 1 - (MODEL.SS_FRA - claimAge) * 0.06);
+    return Math.min(1.32, 1 + (claimAge - MODEL.SS_FRA) * 0.08);
+  }
+
   const DEFAULTS = {
     mode: 'pre',
     profile: {
@@ -465,17 +486,15 @@
       bonusAmount: 27000,    // Total Rewards → Overview → Cash → "Annual bonus"
       rsuAnnual: 73000,      // Total Rewards → Stock → "Total stock value granted in the last 12 months"
       rsuUnvested: 192000,   // Total Rewards → Stock → Quick info → "Total unvested value"
-      coverageType: 'family', // self|spouse|family
-      coverageCost: 12000,
       vestingUnlocked: false,  // Microsoft "rule of 65/55": age 55+ and 15+ yrs of service → unvested RSUs continue vesting after separation
       privateHealthMonthly: 3000, // out-of-pocket monthly premium for private (ACA/marketplace) coverage after employer/COBRA ends, until Medicare at 65
     },
     assumptions: {
       realReturnPct: 4,
-      inflationPct: 2.5,
       taxRatePct: 28,
       ssStartAge: 67,
-      retireSpending: 110000,
+      retireSpending: 110000,      // net (after-tax) annual household spending in retirement
+      bridgeSpendingPct: 70,       // % of retireSpending used during pre-retire age years when not working
     },
     offerPre: {
       cashMultipleX: 1.5,        // x salary
@@ -501,6 +520,7 @@
       severanceWeeksPerYear: 2,
       healthMonths: 6,
       reEmploy: true,
+      newEmployerHealth: true,
     },
   };
 
@@ -529,6 +549,20 @@
       if (parsed && parsed.layoff && parsed.layoff.reEmploy === undefined) {
         parsed.layoff.reEmploy = true;
       }
+      if (parsed && parsed.layoff && parsed.layoff.newEmployerHealth === undefined) {
+        parsed.layoff.newEmployerHealth = true;
+      }
+      if (parsed && parsed.assumptions && parsed.assumptions.bridgeSpendingPct === undefined) {
+        parsed.assumptions.bridgeSpendingPct = 70;
+      }
+      // Strip retired fields from older saves so they don't bloat exports.
+      if (parsed && parsed.profile) {
+        delete parsed.profile.coverageType;
+        delete parsed.profile.coverageCost;
+      }
+      if (parsed && parsed.assumptions) {
+        delete parsed.assumptions.inflationPct;
+      }
       return parsed;
     } catch { return null; }
   }
@@ -537,7 +571,14 @@
   // =====================================================================
   // CORE CALCULATIONS
   // =====================================================================
-  const HEALTH_VALUE_PER_MONTH = { self: 700, spouse: 1100, family: 1700 };
+
+  function annualSavings(s) {
+    // Single source of truth — used by both project() and the STAY card display
+    // so they can never drift out of sync.
+    return s.profile.salary * MODEL.SAVINGS_RATE_SALARY
+         + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU
+         + (s.profile.bonusAmount || 0) * MODEL.SAVINGS_RATE_BONUS;
+  }
 
   function computeOfferCash(s) {
     if (s.mode === 'post') return s.offerPost.cashAmount;
@@ -566,78 +607,71 @@
     return offerHealthEmployerPaid(s) ? offerHealthMonths(s) : 0;
   }
 
-  function healthValuePerYear(s) {
-    return (HEALTH_VALUE_PER_MONTH[s.profile.coverageType] || 1000) * 12;
-  }
-
-  // FV of a single sum: PV * (1+r)^n
-  function fv(pv, ratePct, years) {
-    const r = ratePct / 100;
-    return pv * Math.pow(1 + r, years);
-  }
-  // FV of a series of annual additions a (made at end of each year), n years, rate r
-  function fvSeries(annual, ratePct, years) {
-    const r = ratePct / 100;
-    if (r === 0) return annual * years;
-    return annual * (Math.pow(1 + r, years) - 1) / r;
-  }
-
   /**
    * Build a per-year portfolio trajectory.
-   * Returns array of {year, age, balance} from now to a horizon (planned retire age + 25 yrs).
-   * Each scenario starts from a notional starting portfolio = 0 (we model marginal differences).
+   * Returns { traj: [{year, age, balance}], retireStartIdx } from now to a horizon.
+   * Each scenario starts from a notional balance = 0 (we model marginal differences).
    *
    * Phase model:
    *   t=0 .. separationYears   → still employed at full salary, contributing, employer health.
    *   at t=separationYears     → startCashAtSeparation lump arrives (severance / VRP cash).
    *   then gapYears            → no contributions; small drawdown for living costs.
    *   then workYears           → working at workSalary (e.g., 90% in re-employment).
-   *   then retired             → retireSpending withdrawn each year, SS reduces draw at ssStartAge.
+   *   then retired             → withdrawal phase begins.
+   *
+   * Spending: at each year we pick spending by age — bridgeSpending while age < retireAge
+   * during the withdrawal phase, retireSpending once age >= retireAge. Social Security
+   * (adjusted for claim age) reduces required portfolio withdrawals once age >= ssStartAge.
    *
    * Health: employerHealthMonths counts months of employer/COBRA-paid coverage measured from t=separationYears.
-   * Pre-separation is always covered. From separation onward, any uncovered months before age 65 cost
-   * privateHealthMonthly out-of-pocket.
+   * Pre-separation is always covered. From separation onward, any uncovered months before Medicare age
+   * cost privateHealthMonthly out-of-pocket.
    */
   function projectScenarios(s) {
     const r = s.assumptions.realReturnPct;
-    const horizonAge = s.profile.retireAge + 25;
-    const years = horizonAge - s.profile.age;
+    const horizonAge = s.profile.retireAge + MODEL.HORIZON_YEARS_AFTER_RETIRE;
+    const years = Math.max(1, horizonAge - s.profile.age);
     const tax = s.assumptions.taxRatePct / 100;
-    const annualSpend = s.assumptions.retireSpending;
-    const ssAnnual = Math.min(48000, s.profile.salary * 0.25); // crude SS estimate
-
-    const annualSavingsWhileWorking = s.profile.salary * 0.15 + s.profile.rsuAnnual * 0.5 + (s.profile.bonusAmount || 0) * 0.4;
+    const retireSpend = s.assumptions.retireSpending;
+    const bridgeSpend = retireSpend * (s.assumptions.bridgeSpendingPct / 100);
+    const ssAnnual = Math.min(MODEL.SS_CAP, s.profile.salary * MODEL.SS_PCT_OF_SALARY)
+                     * ssClaimMultiplier(s.assumptions.ssStartAge);
+    const annSaveWorking = annualSavings(s);
 
     function project(opts) {
       const { startCashAtSeparation = 0, separationYears = 0,
               workYears = 0, workSalary = s.profile.salary, gapYears = 0,
               employerHealthMonths = Infinity } = opts;
       const out = []; let bal = 0; let age = s.profile.age;
+      const retireStartIdx = Math.max(0, Math.ceil(separationYears + gapYears + workYears));
       for (let y = 0; y <= years; y++) {
         out.push({ year: y, age, balance: bal });
         bal = bal * (1 + r/100);
 
         if (y < separationYears) {
           // Still employed pre-separation: full-salary contributions.
-          bal += annualSavingsWhileWorking;
+          bal += annSaveWorking;
         } else {
           const yPost = y - separationYears;
           if (yPost === 0) bal += startCashAtSeparation;
 
           if (yPost < gapYears) {
             // Job-gap: no contributions, small living-cost drawdown.
-            bal -= s.profile.salary * 0.4 * (1 - tax);
+            bal -= s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax);
           } else if (yPost - gapYears < workYears) {
-            const annSave = workSalary * 0.15 + s.profile.rsuAnnual * 0.5 * (workSalary / s.profile.salary);
+            const annSave = workSalary * MODEL.SAVINGS_RATE_SALARY
+                          + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU * (workSalary / s.profile.salary);
             bal += annSave;
           } else {
-            const draw = annualSpend - (age >= s.assumptions.ssStartAge ? ssAnnual : 0);
-            bal -= Math.max(0, draw);
+            // Withdrawal phase. Pick spending level by age.
+            const annualDraw = age < s.profile.retireAge ? bridgeSpend : retireSpend;
+            const ssThisYear = age >= s.assumptions.ssStartAge ? ssAnnual : 0;
+            bal -= Math.max(0, annualDraw - ssThisYear);
           }
         }
 
-        // Private health premiums (post-separation, pre-65) for any month not covered by employer/COBRA.
-        if (age < 65 && y >= separationYears) {
+        // Private health premiums (post-separation, pre-Medicare) for any month not covered by employer/COBRA.
+        if (age < MODEL.MEDICARE_AGE && y >= separationYears) {
           const yearStartMonth = (y - separationYears) * 12;
           const yearEndMonth   = yearStartMonth + 12;
           const coveredEndMonth = Math.max(0, employerHealthMonths);
@@ -649,36 +683,39 @@
         }
         age++;
       }
-      return out;
+      return { traj: out, retireStartIdx };
     }
 
     const stayWorkYears = Math.max(0, s.profile.retireAge - s.profile.age);
-    const stay = project({
+    const stayRes = project({
       startCashAtSeparation: 0,
       separationYears: stayWorkYears,
       workYears: 0,
       gapYears: 0,
-      // Stay: employer-paid coverage right up to planned retirement age, then private to 65.
+      // Stay: employer-paid coverage right up to planned retirement age, then private to Medicare.
       employerHealthMonths: 0,
     });
 
     // Layoff baseline
     const sev = s.profile.salary / 52 * (s.layoff.severanceWeeksBase + s.layoff.severanceWeeksPerYear * s.profile.yearsService);
     const sevNet = sev * (1 - tax);
-    const layoffSeparationYears = Math.max(0, (s.layoff.startMonthsFromNow || 0) / 12);
+    // Clamp layoff start so it never lands after planned retirement.
+    const layoffSeparationYears = Math.min(stayWorkYears, Math.max(0, (s.layoff.startMonthsFromNow || 0) / 12));
     const willReEmploy = s.layoff.reEmploy !== false;
     const gap = willReEmploy ? ((s.layoff.timeToJobMonths || 0) / 12) : 0;
     const layoffPostSeparationYears = Math.max(0, stayWorkYears - layoffSeparationYears);
     const layoffWorkYears = willReEmploy ? Math.max(0, layoffPostSeparationYears - gap) : 0;
-    // Health from layoff onward: bridge for healthMonths, then if re-employed assume new job restores coverage for the work years.
-    const layoffHealthMonths = willReEmploy
+    // Health from layoff onward: bridge for healthMonths. If re-employed AND new employer covers health,
+    // assume coverage resumes for the work years.
+    const newJobCoversHealth = willReEmploy && (s.layoff.newEmployerHealth !== false);
+    const layoffHealthMonths = newJobCoversHealth
       ? Math.max(s.layoff.healthMonths || 0, gap * 12) + layoffWorkYears * 12
       : (s.layoff.healthMonths || 0);
-    const layoff = project({
+    const layoffRes = project({
       startCashAtSeparation: sevNet,
       separationYears: layoffSeparationYears,
       workYears: layoffWorkYears,
-      workSalary: s.profile.salary * 0.9,
+      workSalary: s.profile.salary * MODEL.REEMPLOY_SALARY_PCT,
       gapYears: gap,
       employerHealthMonths: layoffHealthMonths,
     });
@@ -698,7 +735,7 @@
       ? 0
       : (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
     const vrpStart = offerCashNet + vestingValue;
-    const vrp = project({
+    const vrpRes = project({
       startCashAtSeparation: vrpStart,
       separationYears: 0,
       workYears: 0,
@@ -706,19 +743,31 @@
       employerHealthMonths: employerBridgeMonths,
     });
 
-    return { stay, layoff, vrp, ssAnnual, offerCash, offerCashNet };
+    return {
+      stay: stayRes.traj, layoff: layoffRes.traj, vrp: vrpRes.traj,
+      stayRetireIdx: stayRes.retireStartIdx,
+      layoffRetireIdx: layoffRes.retireStartIdx,
+      vrpRetireIdx: vrpRes.retireStartIdx,
+      ssAnnual, offerCash, offerCashNet, sev, sevNet,
+    };
   }
 
   function balanceAtRetirement(traj, s) {
-    const idx = Math.max(0, s.profile.retireAge - s.profile.age);
-    return traj[Math.min(idx, traj.length - 1)].balance;
+    if (!traj || !traj.length) return 0;
+    const idx = Math.max(0, Math.min(traj.length - 1, s.profile.retireAge - s.profile.age));
+    return traj[idx].balance;
   }
 
-  function yearsFunded(traj, s) {
-    // years after retireAge until balance hits zero
-    const startIdx = s.profile.retireAge - s.profile.age;
+  // Years after the scenario's withdrawal-phase start until balance hits zero.
+  // We use end-of-year balances (traj[i+1]) so that VRP (which receives its lump
+  // *during* its first retirement year) is counted correctly.
+  function yearsFunded(traj, retireStartIdx) {
+    if (!traj || traj.length < 2) return 0;
+    const start = Math.max(0, Math.min(traj.length - 2, retireStartIdx));
     let count = 0;
-    for (let i = startIdx; i < traj.length; i++) { if (traj[i].balance > 0) count++; else break; }
+    for (let i = start; i < traj.length - 1; i++) {
+      if (traj[i + 1].balance > 0) count++; else break;
+    }
     return count;
   }
 
@@ -754,7 +803,6 @@
     if (a >= 1e3) return (n/1e3).toFixed(0) + 'k';
     return Math.round(n).toString();
   };
-  const fmtPct = n => (n*100).toFixed(0) + '%';
 
   // =====================================================================
   // RENDERING
@@ -785,7 +833,7 @@
   function numberField(label, get, set, opts = {}, tip) {
     const wrap = el('div', { class: 'field' });
     wrap.appendChild(makeLabel(label, tip));
-    const input = el('input', { type: 'number', value: String(get()), step: opts.step || '1', min: opts.min ?? '', title: tip || '' });
+    const input = el('input', { type: 'number', value: String(get()), step: opts.step || '1', min: opts.min ?? '' });
     input.addEventListener('input', () => { const v = parseFloat(input.value); set(isNaN(v) ? 0 : v); rerenderOutputs(); });
     wrap.appendChild(input);
     return wrap;
@@ -794,7 +842,7 @@
     const wrap = el('div', { class: 'field' });
     wrap.appendChild(makeLabel(label, tip));
     const row = el('div', { class: 'row' });
-    const input = el('input', { type: 'range', min, max, step, value: String(get()), title: tip || '' });
+    const input = el('input', { type: 'range', min, max, step, value: String(get()) });
     const val = el('div', { class: 'val' }, fmt(get()));
     input.style.setProperty('--pct', ((get() - min) / (max - min) * 100) + '%');
     input.addEventListener('input', () => {
@@ -810,7 +858,7 @@
   function selectField(label, get, set, options, tip) {
     const wrap = el('div', { class: 'field' });
     wrap.appendChild(makeLabel(label, tip));
-    const sel = el('select', { title: tip || '' });
+    const sel = el('select', {});
     for (const [v, t] of options) {
       const o = el('option', { value: v }, t);
       if (v === get()) o.setAttribute('selected', 'selected');
@@ -824,7 +872,7 @@
     const wrap = el('div', { class: 'field' });
     wrap.appendChild(makeLabel(label, tip));
     const lab = el('label', { class: 'check' });
-    const input = el('input', { type: 'checkbox', title: tip || '' });
+    const input = el('input', { type: 'checkbox' });
     if (get()) input.setAttribute('checked', 'checked');
     input.addEventListener('change', () => { set(input.checked); rerenderOutputs(); });
     lab.appendChild(input);
@@ -839,22 +887,22 @@
 
     body.appendChild(el('div', { class: 'sec' }, 'DEMOGRAPHICS'));
     const g1 = el('div', { class: 'grid2' });
-    g1.appendChild(numberField('Current age', () => p.age, v => p.age = v, {},
+    g1.appendChild(numberField('Current age', () => p.age, v => p.age = Math.max(18, Math.min(80, v)), {},
       'Your age today. Used as the starting point for every projection.'));
-    g1.appendChild(numberField('Planned retirement age', () => p.retireAge, v => p.retireAge = v, {},
+    g1.appendChild(numberField('Planned retirement age', () => p.retireAge, v => p.retireAge = Math.max(p.age, Math.min(80, v)), {},
       'The age you would stop working if you stayed. Defines the STAY scenario\u2019s work horizon and when withdrawals begin.'));
-    g1.appendChild(numberField('Years of service', () => p.yearsService, v => p.yearsService = v, {},
+    g1.appendChild(numberField('Years of service', () => p.yearsService, v => p.yearsService = Math.max(0, v), {},
       'Tenure with current employer. Drives severance formulas (weeks per year of service) and most VRP cash formulas.'));
     body.appendChild(g1);
 
     body.appendChild(el('div', { class: 'sec' }, 'EMPLOYMENT'));
     const empHint = el('div', { class: 'src-hint', html:
-      'Copy these straight from your Microsoft Total Rewards pages:' +
+      'Copy these straight from your Microsoft Total Rewards portal:' +
       '<ul>' +
-        '<li><a href="https://totalrewards.azurefd.net/overview" target="_blank" rel="noopener">totalrewards → Overview</a> → <b>Cash</b> card → use <b>Annual base pay</b> and <b>Annual bonus</b>.</li>' +
-        '<li><a href="https://totalrewards.azurefd.net/stock" target="_blank" rel="noopener">totalrewards → Stock</a> → use <b>Total stock value granted in the last 12 months</b> and Quick info → <b>Total unvested value</b>.</li>' +
+        '<li>Open <a href="https://totalrewards.azurefd.net/" target="_blank" rel="noopener">totalrewards.azurefd.net</a> \u2192 <b>Overview</b> \u2192 <b>Cash</b> card. Use <b>Annual base pay</b> and <b>Annual bonus</b>.</li>' +
+        '<li>Then \u2192 <b>Stock</b>. Use <b>Total stock value granted in the last 12 months</b> and Quick info \u2192 <b>Total unvested value</b>.</li>' +
       '</ul>' +
-      'Tip: ignore the big "Total rewards" headline number — it bundles benefits the model already values separately.'
+      'Tip: ignore the big "Total rewards" headline number \u2014 it bundles benefits the model already values separately.'
     });
     body.appendChild(empHint);
     const g2 = el('div', { class: 'grid2' });
@@ -871,33 +919,29 @@
       'At Microsoft (and many large tech employers), once you are at least age 55 AND have at least 15 years of service, your unvested RSUs continue to vest on schedule even after you leave — you do not forfeit them. Check this box if you qualify. When checked, the offer’s “vesting continuation months” field is ignored AND no extra credit is given to the VRP scenario for unvested stock, because you’d get those RSUs whether you take the offer or stay (it’s a wash).'));
 
     body.appendChild(el('div', { class: 'sec' }, 'HEALTH'));
-    const g4 = el('div', { class: 'grid2' });
-    g4.appendChild(selectField('Coverage type', () => p.coverageType, v => p.coverageType = v, [
-      ['self', 'Self only'], ['spouse', 'Self + spouse'], ['family', 'Family']
-    ], 'Who is on your employer plan today. Used to value the healthcare bridge an offer provides (~$700/$1,100/$1,700 per month).'));
-    g4.appendChild(numberField('Annual employer cost share ($)', () => p.coverageCost, v => p.coverageCost = v, { step: 500 },
-      'What the employer pays per year toward your health premiums (optional override of the default per-coverage estimate).'));
-    g4.appendChild(numberField('Private health premium after term ($/mo)', () => p.privateHealthMonthly, v => p.privateHealthMonthly = v, { step: 100 },
-      'Estimated out-of-pocket monthly premium you would pay for private (ACA marketplace or self-paid COBRA) coverage AFTER any employer-paid bridge ends, until Medicare kicks in at age 65. A family plan in your 50s/60s commonly runs $2,500–$4,000/mo. This cost is subtracted from the VRP and Layoff scenarios for every month between the end of the offer’s health bridge and age 65, and from the Stay scenario between planned retirement and age 65.'));
-    body.appendChild(g4);
+    body.appendChild(numberField('Private health premium after term ($/mo)', () => p.privateHealthMonthly, v => p.privateHealthMonthly = v, { step: 100 },
+      'Estimated out-of-pocket monthly premium you would pay for private (ACA marketplace or self-paid COBRA) coverage AFTER any employer-paid bridge ends, until Medicare kicks in at age 65. A family plan in your 50s/60s commonly runs $2,500\u20134,000/mo. This cost is subtracted from the VRP and Layoff scenarios for every month between the end of the offer\u2019s health bridge and age 65, and from the Stay scenario between planned retirement and age 65.'));
 
     body.appendChild(el('div', { class: 'sec' }, 'FINANCIAL ASSUMPTIONS'));
     body.appendChild(sliderField('Investment return \u2014 real (%)', () => a.realReturnPct, v => a.realReturnPct = v, 0, 10, 0.25, v => v.toFixed(2) + '%',
-      'Expected portfolio return after inflation. 3\u20134% is a common conservative assumption for a balanced retirement portfolio.'));
-    body.appendChild(sliderField('Inflation (%)', () => a.inflationPct, v => a.inflationPct = v, 0, 8, 0.25, v => v.toFixed(2) + '%',
-      'Expected long-run inflation rate. Most figures here are already in real (today\u2019s) dollars; this is informational.'));
-    body.appendChild(sliderField('Effective tax rate (%)', () => a.taxRatePct, v => a.taxRatePct = v, 0, 50, 1, v => v.toFixed(0) + '%',
-      'Combined federal + state effective rate applied to severance and VRP cash. A lump-sum payout often pushes you into a higher bracket \u2014 estimate accordingly.'));
+      'Expected portfolio return after inflation. 3\u20134% is a common conservative assumption for a balanced retirement portfolio. All dollar figures in the model are already in real (today\u2019s) dollars.'));
+    body.appendChild(sliderField('Effective tax rate (%)', () => a.taxRatePct, v => a.taxRatePct = v, 0, 40, 1, v => v.toFixed(0) + '%',
+      'Combined federal + state effective rate applied to severance and VRP cash. A lump-sum payout often pushes you into a higher bracket \u2014 estimate accordingly. This is an *effective* (blended) rate, not your marginal rate.'));
     body.appendChild(sliderField('Social Security start age', () => a.ssStartAge, v => a.ssStartAge = v, 62, 70, 1, v => v.toFixed(0),
-      'When you plan to claim Social Security. Earlier = smaller benefit; later = larger benefit. Used to reduce required portfolio withdrawals after this age.'));
-    body.appendChild(numberField('Planned annual retirement spending ($)', () => a.retireSpending, v => a.retireSpending = v, { step: 5000 },
-      'Your target annual household spending in retirement, in today\u2019s dollars. The withdrawal rate that keeps your portfolio funded.'));
+      'When you plan to claim Social Security. Earlier = smaller benefit (about \u22126%/yr below FRA 67); later = larger benefit (about +8%/yr above). Used to reduce required portfolio withdrawals after this age.'));
+    body.appendChild(numberField('Planned annual retirement spending ($, after-tax)', () => a.retireSpending, v => a.retireSpending = v, { step: 5000 },
+      'Your target annual household spending in retirement, after taxes, in today\u2019s dollars. Withdrawals from the portfolio are treated as net of tax \u2014 enter what you actually intend to spend.'));
+    body.appendChild(sliderField('Pre-retirement spending while not working (%)', () => a.bridgeSpendingPct, v => a.bridgeSpendingPct = v, 30, 100, 5, v => v.toFixed(0) + '%',
+      'When the VRP or layoff (no-reemploy) scenario starts withdrawing BEFORE your planned retirement age, this is the % of full retirement spending used. Most early retirees temporarily reduce spending (no kids at home, no commute, deferred travel). Default 70%.'));
 
     body.appendChild(el('div', { class: 'sec' }, 'LAYOFF BASELINE'));
-    body.appendChild(sliderField('Layoff start (months from now)', () => state.layoff.startMonthsFromNow || 0, v => state.layoff.startMonthsFromNow = v, 0, 24, 1, v => v.toFixed(0) + ' mo',
-      'When the involuntary layoff is assumed to occur. Default is 0 \u2014 today \u2014 so the LAYOFF and VRP scenarios are directly comparable. Increase to model "what if I get laid off in N months." During the months before separation you stay employed at full salary and contributions.'));
+    const maxLayoffStartMo = Math.max(0, Math.min(24, (state.profile.retireAge - state.profile.age) * 12));
+    body.appendChild(sliderField('Layoff start (months from now)', () => Math.min(state.layoff.startMonthsFromNow || 0, maxLayoffStartMo), v => state.layoff.startMonthsFromNow = v, 0, Math.max(1, maxLayoffStartMo), 1, v => v.toFixed(0) + ' mo',
+      'When the involuntary layoff is assumed to occur. Default is 0 \u2014 today \u2014 so the LAYOFF and VRP scenarios are directly comparable. Increase to model "what if I get laid off in N months." During the months before separation you stay employed at full salary and contributions. Capped at the years remaining until your planned retirement age.'));
     body.appendChild(checkField('Find new job after layoff?', () => state.layoff.reEmploy !== false, v => state.layoff.reEmploy = v,
       'If checked, the model assumes you re-employ at 90% of current salary after the gap below, and continue working until your planned retirement age. If unchecked, the layoff is treated as immediate retirement \u2014 in that case LAYOFF and VRP are exactly comparable when severance/health terms match the offer.'));
+    body.appendChild(checkField('New employer covers health?', () => state.layoff.newEmployerHealth !== false, v => state.layoff.newEmployerHealth = v,
+      'Only relevant if "Find new job after layoff?" is checked. If checked, assume the new employer\u2019s plan covers you for the remainder of the work years (no private premium drain). If unchecked, only the explicit "Health continuation (months)" applies and you pay the private premium for any uncovered months.'));
     body.appendChild(sliderField('Time to new job (months)', () => state.layoff.timeToJobMonths, v => state.layoff.timeToJobMonths = v, 0, 24, 1, v => v.toFixed(0) + ' mo',
       'How long until comparable re-employment after the layoff. Only applies if "Find new job after layoff?" is checked.'));
     const gl = el('div', { class: 'grid3' });
@@ -1004,8 +1048,8 @@
     summary.innerHTML = '';
     summary.appendChild(card('vrp', 'OFFER CASH (gross)', fmtUSD(offerCash)));
     summary.appendChild(card('vrp', 'OFFER CASH (net)',   fmtUSD(offerCash * (1 - state.assumptions.taxRatePct/100))));
-    summary.appendChild(card('vrp', 'PREMIUMS SAVED',     fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0)),
-      'private premiums you avoid during the bridge'));
+    summary.appendChild(card('vrp', 'PREMIUMS AVOIDED',     fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0)),
+      'private premiums avoided during the bridge (informational \u2014 already reflected in the projection)'));
   }
 
   function card(cls, title, big, sub, extras) {
@@ -1031,32 +1075,50 @@
     // Cards
     const cards = document.getElementById('cards');
     cards.innerHTML = '';
-    cards.appendChild(card('stay', 'STAY', fmtUSD(stayBal), `${yearsFunded(proj.stay, state)} yrs funded post-retire`, [
+    cards.appendChild(card('stay', 'STAY', fmtUSD(stayBal), `${yearsFunded(proj.stay, proj.stayRetireIdx)} yrs funded post-retire`, [
       ['Work yrs left', String(Math.max(0, state.profile.retireAge - state.profile.age))],
-      ['Annual save', fmtUSD(state.profile.salary*0.15 + state.profile.rsuAnnual*0.5)],
+      ['Annual save', fmtUSD(annualSavings(state))],
     ]));
-    cards.appendChild(card('layoff', 'LAYOFF', fmtUSD(layoffBal), `${yearsFunded(proj.layoff, state)} yrs funded`, [
-      ['Severance (gross)', fmtUSD(state.profile.salary/52 * (state.layoff.severanceWeeksBase + state.layoff.severanceWeeksPerYear*state.profile.yearsService))],
+    cards.appendChild(card('layoff', 'LAYOFF', fmtUSD(layoffBal), `${yearsFunded(proj.layoff, proj.layoffRetireIdx)} yrs funded`, [
+      ['Severance gross / net', `${fmtUSD(proj.sev)} / ${fmtUSD(proj.sevNet)}`],
       ['Gap (months)', String(state.layoff.timeToJobMonths)],
     ]));
-    cards.appendChild(card('vrp', 'VRP', fmtUSD(vrpBal), `${yearsFunded(proj.vrp, state)} yrs funded`, [
-      ['Offer cash (net)', fmtUSD(proj.offerCashNet)],
-      ['Premiums saved', fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0))],
+    cards.appendChild(card('vrp', 'VRP', fmtUSD(vrpBal), `${yearsFunded(proj.vrp, proj.vrpRetireIdx)} yrs funded`, [
+      ['Offer cash gross / net', `${fmtUSD(proj.offerCash)} / ${fmtUSD(proj.offerCashNet)}`],
+      ['Premiums avoided', fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0))],
     ]));
 
-    // Bars
+    // Bars: use a centered zero axis when any value is negative, so deficits show in red on the left.
     const max = Math.max(Math.abs(stayBal), Math.abs(layoffBal), Math.abs(vrpBal), 1);
+    const anyNeg = stayBal < 0 || layoffBal < 0 || vrpBal < 0;
     const bars = document.getElementById('bars');
     bars.innerHTML = '';
     for (const [lbl, val, cls] of [['STAY', stayBal, 'stay'],['LAYOFF', layoffBal, 'layoff'],['VRP', vrpBal, 'vrp']]) {
       const row = el('div', { class: 'bar-row' });
       row.appendChild(el('div', { class: 'lbl' }, lbl));
       const bar = el('div', { class: 'bar' });
-      const fill = el('div', { class: 'fill ' + cls });
-      fill.style.width = (Math.max(0, val) / max * 100) + '%';
-      bar.appendChild(fill);
+      if (anyNeg) {
+        // Centered axis at 50%: positives extend right, negatives extend left in red.
+        bar.appendChild(el('div', { class: 'axis', style: 'left:50%' }));
+        const halfPct = (Math.abs(val) / max) * 50;
+        if (val >= 0) {
+          const fill = el('div', { class: 'fill ' + cls });
+          fill.style.cssText = `width:${halfPct}%; margin-left:50%`;
+          bar.appendChild(fill);
+        } else {
+          const fill = el('div', { class: 'fill neg' });
+          fill.style.cssText = `width:${halfPct}%; margin-left:${50 - halfPct}%`;
+          bar.appendChild(fill);
+        }
+      } else {
+        const fill = el('div', { class: 'fill ' + cls });
+        fill.style.width = (val / max * 100) + '%';
+        bar.appendChild(fill);
+      }
       row.appendChild(bar);
-      row.appendChild(el('div', { class: 'amt' }, '$' + fmtUSDk(val)));
+      const amt = el('div', { class: 'amt' }, (val < 0 ? '-' : '') + '$' + fmtUSDk(Math.abs(val)));
+      if (val < 0) amt.style.color = 'var(--neon-red)';
+      row.appendChild(amt);
       bars.appendChild(row);
     }
 
@@ -1152,14 +1214,24 @@
       const zy = yAt(0);
       svgHTML += `<line x1="${padL}" y1="${zy}" x2="${W-padR}" y2="${zy}" stroke="#4a5565" stroke-dasharray="3,3"/>`;
     }
-    // x ticks: ages
+    // x ticks: explicit anchors so the rightmost age is always labeled.
     const ages = proj.stay.map(d => d.age);
-    for (let i = 0; i < ages.length; i += Math.ceil(ages.length / 6)) {
+    const retireIdx = state.profile.retireAge - state.profile.age;
+    const tickAges = new Set();
+    tickAges.add(ages[0]);
+    if (retireIdx >= 0 && retireIdx < ages.length) tickAges.add(ages[retireIdx]);
+    for (const off of [5, 10, 15]) {
+      const i = retireIdx + off;
+      if (i > 0 && i < ages.length) tickAges.add(ages[i]);
+    }
+    tickAges.add(ages[ages.length - 1]);
+    for (const tickAge of tickAges) {
+      const i = ages.indexOf(tickAge);
+      if (i < 0) continue;
       const x = xAt(i);
-      svgHTML += `<text x="${x}" y="${H-6}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="middle">${ages[i]}</text>`;
+      svgHTML += `<text x="${x}" y="${H-6}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="middle">${tickAge}</text>`;
     }
     // retire age marker
-    const retireIdx = state.profile.retireAge - state.profile.age;
     if (retireIdx >= 0 && retireIdx < n) {
       const x = xAt(retireIdx);
       svgHTML += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${H-padB}" stroke="#4a5565" stroke-dasharray="2,4"/>`;
