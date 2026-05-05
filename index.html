@@ -134,11 +134,12 @@
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
     .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px 16px; }
     @media (max-width: 600px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
-    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .field label {
       font-family: var(--font-display); font-weight: 700; letter-spacing: 0.16em;
       font-size: 10px; color: var(--text-dim); text-transform: uppercase;
       display: inline-flex; align-items: center; gap: 6px;
+      flex-wrap: wrap; word-break: break-word;
     }
     .tip {
       display: inline-flex; align-items: center; justify-content: center;
@@ -178,9 +179,22 @@
       border: 1px solid var(--cyber-line); padding: 9px 10px;
       font-family: var(--font-mono); font-size: 14px; outline: none;
       transition: all 0.15s;
+      width: 100%; min-width: 0; box-sizing: border-box;
     }
     .field input:focus, .field select:focus {
       border-color: var(--neon-cyan); box-shadow: 0 0 0 1px var(--neon-cyan), 0 0 12px rgba(0,243,255,0.2);
+    }
+    /* Strip number-input spinner arrows */
+    .field input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+    .field input[type="number"]::-webkit-outer-spin-button,
+    .field input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none; appearance: none; margin: 0;
+    }
+    .field.disabled { opacity: 0.45; }
+    .field.disabled input, .field.disabled select { cursor: not-allowed; }
+    .field-note {
+      font-family: var(--font-mono); font-size: 10px; color: var(--neon-amber);
+      letter-spacing: 0.04em; margin-top: 2px;
     }
     .field .row { display: flex; align-items: center; gap: 10px; }
     .field input[type="range"] {
@@ -200,8 +214,8 @@
       box-shadow: 0 0 8px var(--neon-cyan); cursor: pointer;
     }
     .val { font-family: var(--font-mono); color: var(--neon-cyan); min-width: 64px; text-align: right; font-size: 13px; }
-    .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
-    .check input { accent-color: var(--neon-cyan); }
+    .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; align-self: flex-start; }
+    .check input { accent-color: var(--neon-cyan); width: 16px; height: 16px; flex: 0 0 auto; margin: 0; }
 
     /* SECTION DIVIDER */
     .sec {
@@ -211,11 +225,22 @@
     }
     .sec:first-child { margin-top: 0; }
 
+    /* SOURCE HINT (where to copy values from) */
+    .src-hint {
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+      border-left: 2px solid var(--neon-cyan); background: rgba(0,243,255,0.04);
+      padding: 8px 10px; margin: 0 0 10px;
+    }
+    .src-hint a { color: var(--neon-cyan); }
+    .src-hint b { color: var(--text); font-weight: 700; }
+    .src-hint ul { margin: 6px 0 0; padding-left: 18px; }
+    .src-hint li { margin: 2px 0; }
+
     /* CARDS */
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
     .card {
       border: 1px solid var(--cyber-line); padding: 14px;
-      background: rgba(0,0,0,0.4); position: relative; overflow: hidden;
+      background: rgba(0,0,0,0.4); position: relative;
     }
     .card.stay     { border-left: 3px solid var(--neon-cyan); }
     .card.layoff   { border-left: 3px solid var(--neon-amber); }
@@ -224,6 +249,7 @@
     .card h3 {
       font-family: var(--font-display); font-weight: 700; letter-spacing: 0.18em;
       font-size: 11px; margin: 0 0 8px; color: var(--text-dim);
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     }
     .card .big {
       font-family: var(--font-display); font-weight: 900; font-size: 24px; color: var(--text);
@@ -329,12 +355,12 @@
 
   <section class="hero">
     <h1>
-      <span class="neon">TAKE</span>
+      <span class="neon" id="hero-verdict">TAKE</span>
       <span class="ghost">·OR·</span>
-      <span class="magenta">STAY</span>
+      <span class="magenta" id="hero-verdict-alt">STAY</span>
       <span class="ghost">·DECIDE·</span>
     </h1>
-    <p class="lede">Personal breakpoint analysis for voluntary retirement programs. All math runs in your browser. Nothing leaves this tab.</p>
+    <p class="lede">Personal breakpoint analysis for voluntary retirement programs. All math runs in your browser. Nothing leaves this tab. <span id="hero-sub" style="color:var(--text-dim)">Live verdict appears in panel [04].</span></p>
   </section>
 
   <main>
@@ -367,7 +393,7 @@
         <div class="panel-body">
           <div class="cards" id="cards"></div>
           <div class="chart-wrap" style="margin-top:16px">
-            <div class="chart-title">NPV AT RETIREMENT AGE</div>
+            <div class="chart-title">PROJECTED PORTFOLIO BALANCE AT RETIREMENT AGE</div>
             <div id="bars"></div>
             <div class="legend">
               <span class="stay">STAY</span><span class="layoff">LAYOFF</span><span class="vrp">VRP</span>
@@ -385,31 +411,26 @@
 
       <section class="panel">
         <div class="panel-head">
-          <h2>[04] BREAKPOINT ANALYSIS</h2>
+          <h2>[04] BREAKPOINT ANALYSIS <span class="tip" data-tip="The breakpoint is the cash amount that makes taking the VRP financially equivalent to staying. We compare three scenarios at your planned retirement age — STAY, LAYOFF, VRP — then binary-search for the offer cash that ties the projected VRP portfolio balance with the STAY balance. Hover the question marks on each card for what it means and how it’s computed." tabindex="0">?</span></h2>
           <span class="meta">SOLVE FOR INDIFFERENCE</span>
         </div>
         <div class="panel-body">
           <div class="cards">
             <div class="card breakpt">
-              <h3>BREAKPOINT CASH</h3>
+              <h3>BREAKPOINT CASH <span class="tip" data-tip="The smallest gross VRP cash payout that makes the VRP scenario financially equivalent to staying. We binary-search the cash amount until the projected VRP portfolio balance at your planned retirement age equals the projected STAY balance. Anything above this number means the offer is financially favorable; anything below means staying wins on dollars alone." tabindex="0">?</span></h3>
               <div class="big" id="bp-amount">—</div>
-              <div class="sub" id="bp-context">where NPV(VRP) ≈ NPV(Stay)</div>
+              <div class="sub" id="bp-context">where projected VRP balance ≈ STAY balance</div>
             </div>
             <div class="card breakpt">
-              <h3>YOUR OFFER</h3>
+              <h3>YOUR OFFER <span class="tip" data-tip="The total gross cash in the offer you defined in panel [02]. In pre-offer mode this is the larger of (cash multiple × salary) or (weeks-base + weeks/yr × years of service) plus any retirement bonus. In post-offer mode it's the actual cash amount you entered. The percentage below shows how this compares to the breakpoint." tabindex="0">?</span></h3>
               <div class="big" id="bp-offer">—</div>
               <div class="sub" id="bp-pct">— of breakpoint</div>
-            </div>
-            <div class="card breakpt">
-              <h3>COLLEGE FUNDING</h3>
-              <div class="big" id="bp-college">—</div>
-              <div class="sub">vs. required total</div>
             </div>
           </div>
           <div class="verdict" id="verdict">
             <div class="light green" id="vlight"></div>
-            <div>
-              <div class="vlabel green" id="vtext">TAKE</div>
+            <div style="flex:1">
+              <div class="vlabel green" id="vtext">TAKE <span class="tip" data-tip="Live recommendation based on offer-vs-breakpoint ratio: TAKE ≥ 110%, LEAN TAKE ≥ 100%, LEAN STAY ≥ 90%, otherwise STAY. This is a financial-only signal — it ignores career, health, and family non-financials that may dominate your real decision." tabindex="0">?</span></div>
               <div class="vsub" id="vsub">—</div>
             </div>
           </div>
@@ -440,15 +461,14 @@
       age: 55,
       retireAge: 65,
       yearsService: 22,
-      salary: 180000,
-      bonusPct: 12,
-      rsuAnnual: 60000,
-      rsuUnvested: 120000,
-      spouseAge: 53,
-      collegeKids: 1,
-      collegeCostPer: 35000,
+      salary: 187500,        // Total Rewards → Overview → Cash → "Annual base pay"
+      bonusAmount: 27000,    // Total Rewards → Overview → Cash → "Annual bonus"
+      rsuAnnual: 73000,      // Total Rewards → Stock → "Total stock value granted in the last 12 months"
+      rsuUnvested: 192000,   // Total Rewards → Stock → Quick info → "Total unvested value"
       coverageType: 'family', // self|spouse|family
       coverageCost: 12000,
+      vestingUnlocked: false,  // Microsoft "rule of 65/55": age 55+ and 15+ yrs of service → unvested RSUs continue vesting after separation
+      privateHealthMonthly: 3000, // out-of-pocket monthly premium for private (ACA/marketplace) coverage after employer/COBRA ends, until Medicare at 65
     },
     assumptions: {
       realReturnPct: 4,
@@ -475,17 +495,42 @@
       vestingMonths: 6,
     },
     layoff: {
+      startMonthsFromNow: 0,
       timeToJobMonths: 6,
       severanceWeeksBase: 12,
       severanceWeeksPerYear: 2,
       healthMonths: 6,
+      reEmploy: true,
     },
   };
 
   let state = load() || JSON.parse(JSON.stringify(DEFAULTS));
 
   function load() {
-    try { const s = localStorage.getItem('vrp:state'); return s ? JSON.parse(s) : null; } catch { return null; }
+    try {
+      const s = localStorage.getItem('vrp:state');
+      if (!s) return null;
+      const parsed = JSON.parse(s);
+      // Migrate legacy bonusPct (% of salary) → bonusAmount ($)
+      if (parsed && parsed.profile && parsed.profile.bonusAmount === undefined && parsed.profile.bonusPct !== undefined) {
+        parsed.profile.bonusAmount = Math.round((parsed.profile.salary || 0) * (parsed.profile.bonusPct / 100));
+        delete parsed.profile.bonusPct;
+      }
+      // Default new vestingUnlocked field for older saves
+      if (parsed && parsed.profile && parsed.profile.vestingUnlocked === undefined) {
+        parsed.profile.vestingUnlocked = false;
+      }
+      if (parsed && parsed.profile && parsed.profile.privateHealthMonthly === undefined) {
+        parsed.profile.privateHealthMonthly = 3000;
+      }
+      if (parsed && parsed.layoff && parsed.layoff.startMonthsFromNow === undefined) {
+        parsed.layoff.startMonthsFromNow = 0;
+      }
+      if (parsed && parsed.layoff && parsed.layoff.reEmploy === undefined) {
+        parsed.layoff.reEmploy = true;
+      }
+      return parsed;
+    } catch { return null; }
   }
   function save() { try { localStorage.setItem('vrp:state', JSON.stringify(state)); } catch {} }
 
@@ -507,6 +552,20 @@
   function offerHealthMonths(s) { return s.mode === 'post' ? s.offerPost.healthMonths : s.offerPre.healthMonths; }
   function offerVestingMonths(s) { return s.mode === 'post' ? s.offerPost.vestingMonths : s.offerPre.vestingMonths; }
 
+  // Whether the offer's healthcare bridge is genuinely employer-paid.
+  //  - Pre-offer: depends on the "COBRA paid by employer?" checkbox.
+  //  - Post-offer: only the 'cobra-paid' option counts. 'cobra-self' = user pays full COBRA premium
+  //    (treated as no employer subsidy here — the premium burden is essentially the same as private).
+  //  - 'none' = no offered coverage at all.
+  function offerHealthEmployerPaid(s) {
+    if (s.mode === 'post') return s.offerPost.healthType === 'cobra-paid';
+    return !!s.offerPre.cobraPaid;
+  }
+  // Effective months of *employer-paid* coverage from the offer (0 when self-paid / none).
+  function effectiveOfferHealthMonths(s) {
+    return offerHealthEmployerPaid(s) ? offerHealthMonths(s) : 0;
+  }
+
   function healthValuePerYear(s) {
     return (HEALTH_VALUE_PER_MONTH[s.profile.coverageType] || 1000) * 12;
   }
@@ -527,9 +586,17 @@
    * Build a per-year portfolio trajectory.
    * Returns array of {year, age, balance} from now to a horizon (planned retire age + 25 yrs).
    * Each scenario starts from a notional starting portfolio = 0 (we model marginal differences).
-   *  - Stay: contributes (salary*0.15 + rsuAnnual*0.5) per year while working, then withdraws retireSpending after retireAge.
-   *  - Layoff: severance up front, no contribs during gap, then assumed re-employment at 90% salary, contribs, then withdraws.
-   *  - VRP: cash up front (after tax), no salary contribs, withdraws to bridge to ssStartAge then SS reduces draw.
+   *
+   * Phase model:
+   *   t=0 .. separationYears   → still employed at full salary, contributing, employer health.
+   *   at t=separationYears     → startCashAtSeparation lump arrives (severance / VRP cash).
+   *   then gapYears            → no contributions; small drawdown for living costs.
+   *   then workYears           → working at workSalary (e.g., 90% in re-employment).
+   *   then retired             → retireSpending withdrawn each year, SS reduces draw at ssStartAge.
+   *
+   * Health: employerHealthMonths counts months of employer/COBRA-paid coverage measured from t=separationYears.
+   * Pre-separation is always covered. From separation onward, any uncovered months before age 65 cost
+   * privateHealthMonthly out-of-pocket.
    */
   function projectScenarios(s) {
     const r = s.assumptions.realReturnPct;
@@ -539,25 +606,46 @@
     const annualSpend = s.assumptions.retireSpending;
     const ssAnnual = Math.min(48000, s.profile.salary * 0.25); // crude SS estimate
 
-    const annualSavingsWhileWorking = s.profile.salary * 0.15 + s.profile.rsuAnnual * 0.5 + s.profile.salary * (s.profile.bonusPct/100) * 0.4;
+    const annualSavingsWhileWorking = s.profile.salary * 0.15 + s.profile.rsuAnnual * 0.5 + (s.profile.bonusAmount || 0) * 0.4;
 
     function project(opts) {
-      const { startCash = 0, workYears = 0, workSalary = s.profile.salary, gapYears = 0 } = opts;
-      const out = []; let bal = startCash; let age = s.profile.age;
+      const { startCashAtSeparation = 0, separationYears = 0,
+              workYears = 0, workSalary = s.profile.salary, gapYears = 0,
+              employerHealthMonths = Infinity } = opts;
+      const out = []; let bal = 0; let age = s.profile.age;
       for (let y = 0; y <= years; y++) {
         out.push({ year: y, age, balance: bal });
         bal = bal * (1 + r/100);
-        if (y < gapYears) {
-          // gap: no contributions, slight drawdown for living costs
-          bal -= s.profile.salary * 0.4 * (1 - tax);
-        } else if (y - gapYears < workYears) {
-          // working
-          const annSave = workSalary * 0.15 + s.profile.rsuAnnual * 0.5 * (workSalary / s.profile.salary);
-          bal += annSave;
+
+        if (y < separationYears) {
+          // Still employed pre-separation: full-salary contributions.
+          bal += annualSavingsWhileWorking;
         } else {
-          // retired
-          const draw = annualSpend - (age >= s.assumptions.ssStartAge ? ssAnnual : 0);
-          bal -= Math.max(0, draw);
+          const yPost = y - separationYears;
+          if (yPost === 0) bal += startCashAtSeparation;
+
+          if (yPost < gapYears) {
+            // Job-gap: no contributions, small living-cost drawdown.
+            bal -= s.profile.salary * 0.4 * (1 - tax);
+          } else if (yPost - gapYears < workYears) {
+            const annSave = workSalary * 0.15 + s.profile.rsuAnnual * 0.5 * (workSalary / s.profile.salary);
+            bal += annSave;
+          } else {
+            const draw = annualSpend - (age >= s.assumptions.ssStartAge ? ssAnnual : 0);
+            bal -= Math.max(0, draw);
+          }
+        }
+
+        // Private health premiums (post-separation, pre-65) for any month not covered by employer/COBRA.
+        if (age < 65 && y >= separationYears) {
+          const yearStartMonth = (y - separationYears) * 12;
+          const yearEndMonth   = yearStartMonth + 12;
+          const coveredEndMonth = Math.max(0, employerHealthMonths);
+          const uncoveredStart = Math.max(yearStartMonth, coveredEndMonth);
+          const uncoveredMonthsThisYear = Math.max(0, yearEndMonth - uncoveredStart);
+          if (uncoveredMonthsThisYear > 0) {
+            bal -= uncoveredMonthsThisYear * (s.profile.privateHealthMonthly || 0);
+          }
         }
         age++;
       }
@@ -566,41 +654,62 @@
 
     const stayWorkYears = Math.max(0, s.profile.retireAge - s.profile.age);
     const stay = project({
-      startCash: 0,
-      workYears: stayWorkYears,
-      workSalary: s.profile.salary,
+      startCashAtSeparation: 0,
+      separationYears: stayWorkYears,
+      workYears: 0,
       gapYears: 0,
+      // Stay: employer-paid coverage right up to planned retirement age, then private to 65.
+      employerHealthMonths: 0,
     });
 
-    // Layoff: severance baseline
+    // Layoff baseline
     const sev = s.profile.salary / 52 * (s.layoff.severanceWeeksBase + s.layoff.severanceWeeksPerYear * s.profile.yearsService);
     const sevNet = sev * (1 - tax);
-    const gap = s.layoff.timeToJobMonths / 12;
+    const layoffSeparationYears = Math.max(0, (s.layoff.startMonthsFromNow || 0) / 12);
+    const willReEmploy = s.layoff.reEmploy !== false;
+    const gap = willReEmploy ? ((s.layoff.timeToJobMonths || 0) / 12) : 0;
+    const layoffPostSeparationYears = Math.max(0, stayWorkYears - layoffSeparationYears);
+    const layoffWorkYears = willReEmploy ? Math.max(0, layoffPostSeparationYears - gap) : 0;
+    // Health from layoff onward: bridge for healthMonths, then if re-employed assume new job restores coverage for the work years.
+    const layoffHealthMonths = willReEmploy
+      ? Math.max(s.layoff.healthMonths || 0, gap * 12) + layoffWorkYears * 12
+      : (s.layoff.healthMonths || 0);
     const layoff = project({
-      startCash: sevNet,
-      workYears: Math.max(0, stayWorkYears - gap),
+      startCashAtSeparation: sevNet,
+      separationYears: layoffSeparationYears,
+      workYears: layoffWorkYears,
       workSalary: s.profile.salary * 0.9,
       gapYears: gap,
+      employerHealthMonths: layoffHealthMonths,
     });
 
-    // VRP
+    // VRP — immediate separation, no further work.
     const offerCash = computeOfferCash(s);
     const offerCashNet = offerCash * (1 - tax);
-    const healthBridgeValue = (offerHealthMonths(s) / 12) * healthValuePerYear(s);
-    const vestingValue = (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
-    const vrpStart = offerCashNet + healthBridgeValue + vestingValue;
-    // Treat VRP as immediate retirement (no further work)
+    const employerBridgeMonths = effectiveOfferHealthMonths(s);
+    // NOTE: We intentionally do NOT add an imputed "health bridge value" to start cash.
+    //   The benefit of an employer-paid bridge already shows up as private premiums NOT subtracted
+    //   during covered months. Adding both would double-count.
+    // Stock vesting value preserved by the offer:
+    //   - If RSUs are "unlocked" (rule of 55+15) you keep them whether you take the offer or stay —
+    //     no offer advantage, so vestingValue = 0.
+    //   - Otherwise, vestingMonths/12 × rsuAnnual would otherwise be forfeited — real start cash.
+    const vestingValue = s.profile.vestingUnlocked
+      ? 0
+      : (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
+    const vrpStart = offerCashNet + vestingValue;
     const vrp = project({
-      startCash: vrpStart,
+      startCashAtSeparation: vrpStart,
+      separationYears: 0,
       workYears: 0,
-      workSalary: 0,
       gapYears: 0,
+      employerHealthMonths: employerBridgeMonths,
     });
 
     return { stay, layoff, vrp, ssAnnual, offerCash, offerCashNet };
   }
 
-  function npvAtRetirement(traj, s) {
+  function balanceAtRetirement(traj, s) {
     const idx = Math.max(0, s.profile.retireAge - s.profile.age);
     return traj[Math.min(idx, traj.length - 1)].balance;
   }
@@ -613,9 +722,9 @@
     return count;
   }
 
-  // Solve for breakpoint cash: VRP NPV(retireAge) ≈ Stay NPV(retireAge)
+  // Solve for breakpoint cash: projected VRP balance at retire age ≈ STAY balance at retire age
   function breakpointCash(s) {
-    const stayNPV = npvAtRetirement(projectScenarios(s).stay, s);
+    const stayBal = balanceAtRetirement(projectScenarios(s).stay, s);
     // binary search on cash amount
     let lo = 0, hi = s.profile.salary * 10;
     for (let i = 0; i < 60; i++) {
@@ -625,14 +734,14 @@
       trial.offerPost.cashAmount = mid;
       trial.offerPost.healthMonths = s.mode === 'post' ? s.offerPost.healthMonths : s.offerPre.healthMonths;
       trial.offerPost.vestingMonths = s.mode === 'post' ? s.offerPost.vestingMonths : s.offerPre.vestingMonths;
-      const vrpNPV = npvAtRetirement(projectScenarios(trial).vrp, s);
-      if (vrpNPV < stayNPV) lo = mid; else hi = mid;
+      // Carry the user's COBRA-paid intent into the trial so the breakpoint reflects it.
+      trial.offerPost.healthType = s.mode === 'post'
+        ? s.offerPost.healthType
+        : (s.offerPre.cobraPaid ? 'cobra-paid' : 'cobra-self');
+      const vrpBal = balanceAtRetirement(projectScenarios(trial).vrp, s);
+      if (vrpBal < stayBal) lo = mid; else hi = mid;
     }
     return (lo + hi) / 2;
-  }
-
-  function collegeRequired(s) {
-    return (s.profile.collegeKids || 0) * (s.profile.collegeCostPer || 0) * 4;
   }
 
   // =====================================================================
@@ -719,7 +828,6 @@
     if (get()) input.setAttribute('checked', 'checked');
     input.addEventListener('change', () => { set(input.checked); rerenderOutputs(); });
     lab.appendChild(input);
-    lab.appendChild(document.createTextNode(get() ? 'Yes' : 'No'));
     wrap.appendChild(lab);
     return wrap;
   }
@@ -735,31 +843,32 @@
       'Your age today. Used as the starting point for every projection.'));
     g1.appendChild(numberField('Planned retirement age', () => p.retireAge, v => p.retireAge = v, {},
       'The age you would stop working if you stayed. Defines the STAY scenario\u2019s work horizon and when withdrawals begin.'));
-    g1.appendChild(numberField('Spouse / partner age', () => p.spouseAge, v => p.spouseAge = v, {},
-      'Used for healthcare bridge sizing and (future) joint-life longevity assumptions.'));
     g1.appendChild(numberField('Years of service', () => p.yearsService, v => p.yearsService = v, {},
       'Tenure with current employer. Drives severance formulas (weeks per year of service) and most VRP cash formulas.'));
     body.appendChild(g1);
 
     body.appendChild(el('div', { class: 'sec' }, 'EMPLOYMENT'));
+    const empHint = el('div', { class: 'src-hint', html:
+      'Copy these straight from your Microsoft Total Rewards pages:' +
+      '<ul>' +
+        '<li><a href="https://totalrewards.azurefd.net/overview" target="_blank" rel="noopener">totalrewards → Overview</a> → <b>Cash</b> card → use <b>Annual base pay</b> and <b>Annual bonus</b>.</li>' +
+        '<li><a href="https://totalrewards.azurefd.net/stock" target="_blank" rel="noopener">totalrewards → Stock</a> → use <b>Total stock value granted in the last 12 months</b> and Quick info → <b>Total unvested value</b>.</li>' +
+      '</ul>' +
+      'Tip: ignore the big "Total rewards" headline number — it bundles benefits the model already values separately.'
+    });
+    body.appendChild(empHint);
     const g2 = el('div', { class: 'grid2' });
-    g2.appendChild(numberField('Current annual salary ($)', () => p.salary, v => p.salary = v, { step: 1000 },
-      'Base salary, gross. Anchors VRP cash multiples, severance value, and per-year savings rate.'));
-    g2.appendChild(numberField('Bonus (%)', () => p.bonusPct, v => p.bonusPct = v, {},
-      'Target annual bonus as a percent of salary. About 40% of bonus is treated as savings in the STAY scenario.'));
-    g2.appendChild(numberField('RSU annual value ($)', () => p.rsuAnnual, v => p.rsuAnnual = v, { step: 1000 },
-      'Estimated value of RSUs vesting per year. About 50% is assumed to be saved in the STAY scenario.'));
-    g2.appendChild(numberField('RSU unvested value ($)', () => p.rsuUnvested, v => p.rsuUnvested = v, { step: 1000 },
-      'Total value of unvested RSUs you would forfeit by leaving (unless the offer continues vesting).'));
+    g2.appendChild(numberField('Annual base pay ($)', () => p.salary, v => p.salary = v, { step: 1000 },
+      'From Total Rewards → Overview → Cash card → "Annual base pay". Gross base salary. Anchors VRP cash multiples, severance value, and per-year savings rate.'));
+    g2.appendChild(numberField('Annual bonus ($)', () => p.bonusAmount, v => p.bonusAmount = v, { step: 500 },
+      'From Total Rewards → Overview → Cash card → "Annual bonus" (the dollar amount, not a percent). About 40% of bonus is treated as savings in the STAY scenario.'));
+    g2.appendChild(numberField('Annual stock grant value ($)', () => p.rsuAnnual, v => p.rsuAnnual = v, { step: 1000 },
+      'From Total Rewards → Stock → "Total stock value granted in the last 12 months". Used as a per-year RSU run-rate; about 50% is assumed to be saved in the STAY scenario.'));
+    g2.appendChild(numberField('Total unvested stock value ($)', () => p.rsuUnvested, v => p.rsuUnvested = v, { step: 1000 },
+      'From Total Rewards → Stock → Quick info → "Total unvested value". This is what you would forfeit by leaving (unless the offer continues vesting).'));
     body.appendChild(g2);
-
-    body.appendChild(el('div', { class: 'sec' }, 'FAMILY'));
-    const g3 = el('div', { class: 'grid2' });
-    g3.appendChild(numberField('Dependents in college', () => p.collegeKids, v => p.collegeKids = v, {},
-      'Number of children in (or about to enter) college. Used to size 4-year college funding requirement.'));
-    g3.appendChild(numberField('Annual college cost / dep ($)', () => p.collegeCostPer, v => p.collegeCostPer = v, { step: 1000 },
-      'All-in annual cost per dependent (tuition + room/board). Multiplied by 4 years per dependent.'));
-    body.appendChild(g3);
+    body.appendChild(checkField('RSU vesting unlocked (rule of 55+15)?', () => p.vestingUnlocked, v => { p.vestingUnlocked = v; renderOffer(); },
+      'At Microsoft (and many large tech employers), once you are at least age 55 AND have at least 15 years of service, your unvested RSUs continue to vest on schedule even after you leave — you do not forfeit them. Check this box if you qualify. When checked, the offer’s “vesting continuation months” field is ignored AND no extra credit is given to the VRP scenario for unvested stock, because you’d get those RSUs whether you take the offer or stay (it’s a wash).'));
 
     body.appendChild(el('div', { class: 'sec' }, 'HEALTH'));
     const g4 = el('div', { class: 'grid2' });
@@ -768,6 +877,8 @@
     ], 'Who is on your employer plan today. Used to value the healthcare bridge an offer provides (~$700/$1,100/$1,700 per month).'));
     g4.appendChild(numberField('Annual employer cost share ($)', () => p.coverageCost, v => p.coverageCost = v, { step: 500 },
       'What the employer pays per year toward your health premiums (optional override of the default per-coverage estimate).'));
+    g4.appendChild(numberField('Private health premium after term ($/mo)', () => p.privateHealthMonthly, v => p.privateHealthMonthly = v, { step: 100 },
+      'Estimated out-of-pocket monthly premium you would pay for private (ACA marketplace or self-paid COBRA) coverage AFTER any employer-paid bridge ends, until Medicare kicks in at age 65. A family plan in your 50s/60s commonly runs $2,500–$4,000/mo. This cost is subtracted from the VRP and Layoff scenarios for every month between the end of the offer’s health bridge and age 65, and from the Stay scenario between planned retirement and age 65.'));
     body.appendChild(g4);
 
     body.appendChild(el('div', { class: 'sec' }, 'FINANCIAL ASSUMPTIONS'));
@@ -783,8 +894,12 @@
       'Your target annual household spending in retirement, in today\u2019s dollars. The withdrawal rate that keeps your portfolio funded.'));
 
     body.appendChild(el('div', { class: 'sec' }, 'LAYOFF BASELINE'));
+    body.appendChild(sliderField('Layoff start (months from now)', () => state.layoff.startMonthsFromNow || 0, v => state.layoff.startMonthsFromNow = v, 0, 24, 1, v => v.toFixed(0) + ' mo',
+      'When the involuntary layoff is assumed to occur. Default is 0 \u2014 today \u2014 so the LAYOFF and VRP scenarios are directly comparable. Increase to model "what if I get laid off in N months." During the months before separation you stay employed at full salary and contributions.'));
+    body.appendChild(checkField('Find new job after layoff?', () => state.layoff.reEmploy !== false, v => state.layoff.reEmploy = v,
+      'If checked, the model assumes you re-employ at 90% of current salary after the gap below, and continue working until your planned retirement age. If unchecked, the layoff is treated as immediate retirement \u2014 in that case LAYOFF and VRP are exactly comparable when severance/health terms match the offer.'));
     body.appendChild(sliderField('Time to new job (months)', () => state.layoff.timeToJobMonths, v => state.layoff.timeToJobMonths = v, 0, 24, 1, v => v.toFixed(0) + ' mo',
-      'How long you assume it would take to land comparable employment after an involuntary layoff. Drives portfolio drawdown during the gap.'));
+      'How long until comparable re-employment after the layoff. Only applies if "Find new job after layoff?" is checked.'));
     const gl = el('div', { class: 'grid3' });
     gl.appendChild(numberField('Severance base (weeks)', () => state.layoff.severanceWeeksBase, v => state.layoff.severanceWeeksBase = v, {},
       'Fixed weeks of pay in your employer\u2019s severance formula, before the per-year-of-service component. Often 8\u201312.'));
@@ -800,11 +915,25 @@
     body.innerHTML = '';
     document.getElementById('offer-mode-label').textContent = state.mode === 'pre' ? 'PRE-OFFER MODE' : 'POST-OFFER MODE';
 
+    // Helper: gray out + disable a vesting-continuation field when the user's RSUs
+    // are already "unlocked" (rule of 55+15) — in that case the offer's vesting
+    // continuation term has no effect (they keep ALL unvested stock anyway).
+    function disableIfVestingUnlocked(fieldEl) {
+      if (!state.profile.vestingUnlocked) return;
+      fieldEl.classList.add('disabled');
+      const input = fieldEl.querySelector('input');
+      if (input) {
+        input.disabled = true;
+        input.title = 'Not applicable: your RSUs are already vesting-unlocked, so all unvested stock is preserved regardless of any continuation months.';
+      }
+      fieldEl.appendChild(el('div', { class: 'field-note' }, 'N/A — RSUs already unlocked'));
+    }
+
     if (state.mode === 'pre') {
       const o = state.offerPre;
       body.appendChild(el('div', { class: 'sec' }, 'HYPOTHETICAL OFFER'));
-      body.appendChild(sliderField('Cash multiple of salary', () => o.cashMultipleX, v => o.cashMultipleX = v, 0.25, 3, 0.25, v => v.toFixed(2) + 'x',
-        'Hypothetical lump-sum cash, expressed as a multiple of your annual salary. The model uses whichever is greater: this multiple, or weeks-base + weeks/year-of-service.'));
+      body.appendChild(sliderField('Cash multiple of salary', () => o.cashMultipleX, v => o.cashMultipleX = v, 0, 3, 0.25, v => v.toFixed(2) + 'x',
+        'Hypothetical lump-sum cash, expressed as a multiple of your annual salary. The model uses whichever is greater: this multiple, or weeks-base + weeks/year-of-service. Set to 0 to ignore the multiple and rely on the weeks formula or cash override.'));
       const g1 = el('div', { class: 'grid2' });
       g1.appendChild(numberField('Cash override ($, 0 = use multiple)', () => o.cashOverride, v => o.cashOverride = v, { step: 5000 },
         'If you want to test a specific dollar amount instead of a salary multiple, enter it here. Set to 0 to use the multiple/weeks formula.'));
@@ -816,17 +945,38 @@
         'Floor of weeks of pay regardless of tenure (e.g., 12 weeks). Total weeks = base + (weeks/yr × years of service).'));
       g1.appendChild(numberField('Healthcare coverage (months)', () => o.healthMonths, v => o.healthMonths = v, {},
         'Months of subsidized healthcare the offer provides. Valued at coverage-tier rates and added to the VRP scenario.'));
-      g1.appendChild(numberField('Stock vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
-        'Months of continued RSU/equity vesting after separation. Valued pro-rata against your annual RSU value.'));
+      const vestField = numberField('Stock vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
+        'How many extra months your unvested RSUs would keep vesting after your last day. Example: if your offer says "6 months of continued vesting" and you have $60k/yr granting, the offer preserves about 6/12 × $60k = $30k of stock that would otherwise be forfeited. Ignored if the "RSU vesting unlocked" box in your profile is checked — in that case you keep ALL unvested stock regardless.');
+      disableIfVestingUnlocked(vestField);
+      g1.appendChild(vestField);
       body.appendChild(g1);
       body.appendChild(checkField('COBRA paid by employer?', () => o.cobraPaid, v => o.cobraPaid = v,
         'If the employer pays COBRA premiums, the healthcare bridge counts at full value. If self-paid, it is mostly access — not value.'));
     } else {
       const o = state.offerPost;
       body.appendChild(el('div', { class: 'sec' }, 'ACTUAL OFFER TERMS'));
+      // Convenience slider: drag a salary multiple to populate the cash amount.
+      // The numberField below remains the source of truth so users can type an exact figure.
+      const salary = state.profile.salary || 1;
+      body.appendChild(sliderField(
+        'Cash multiple of salary (sets cash amount)',
+        () => Math.min(3, Math.max(0, o.cashAmount / salary)),
+        v => {
+          o.cashAmount = Math.round(v * salary / 1000) * 1000;
+          // Keep the Cash amount number field visually in sync without rebuilding the panel mid-drag.
+          const cashInput = document.getElementById('post-cash-amount');
+          if (cashInput) cashInput.value = String(o.cashAmount);
+        },
+        0, 3, 0.25,
+        v => v.toFixed(2) + 'x  →  $' + Math.round(v * salary).toLocaleString(),
+        'Quick way to set the cash amount as a multiple of your salary. Moving this overwrites the "Cash amount" field below. Set to 0 if your offer has no cash component.'
+      ));
       const g1 = el('div', { class: 'grid2' });
-      g1.appendChild(numberField('Cash amount ($)', () => o.cashAmount, v => o.cashAmount = v, { step: 5000 },
-        'The actual gross lump-sum cash amount in the offer letter (before tax). Tax is applied using your effective rate above.'));
+      const cashField = numberField('Cash amount ($)', () => o.cashAmount, v => o.cashAmount = v, { step: 5000 },
+        'The actual gross lump-sum cash amount in the offer letter (before tax). Tax is applied using your effective rate above.');
+      const cashInput = cashField.querySelector('input');
+      if (cashInput) cashInput.id = 'post-cash-amount';
+      g1.appendChild(cashField);
       g1.appendChild(numberField('Pension / retirement credits ($)', () => o.pensionCredits, v => o.pensionCredits = v, { step: 1000 },
         'Present value of any added pension years, retiree medical credits, or 401(k) top-up included in the offer.'));
       g1.appendChild(numberField('Healthcare duration (months)', () => o.healthMonths, v => o.healthMonths = v, {},
@@ -834,8 +984,10 @@
       g1.appendChild(selectField('Healthcare type', () => o.healthType, v => o.healthType = v, [
         ['cobra-paid', 'COBRA — employer paid'], ['cobra-self', 'COBRA — self paid'], ['none', 'None']
       ], 'Employer-paid COBRA is worth the most. Self-paid COBRA gives you access but not value. None is unusual but possible.'));
-      g1.appendChild(numberField('Vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
-        'How many additional months of RSU vesting the offer preserves. Multiply by your annual RSU value to see what it is worth.'));
+      const vestField = numberField('Vesting continuation (months)', () => o.vestingMonths, v => o.vestingMonths = v, {},
+        'How many extra months your unvested RSUs would keep vesting after your last day under this actual offer. Worth roughly months/12 × your annual stock grant. Ignored if the "RSU vesting unlocked" box in your profile is checked — in that case you keep ALL unvested stock regardless.');
+      disableIfVestingUnlocked(vestField);
+      g1.appendChild(vestField);
       body.appendChild(g1);
     }
 
@@ -852,7 +1004,8 @@
     summary.innerHTML = '';
     summary.appendChild(card('vrp', 'OFFER CASH (gross)', fmtUSD(offerCash)));
     summary.appendChild(card('vrp', 'OFFER CASH (net)',   fmtUSD(offerCash * (1 - state.assumptions.taxRatePct/100))));
-    summary.appendChild(card('vrp', 'HEALTH BRIDGE',      fmtUSD(offerHealthMonths(state)/12 * healthValuePerYear(state))));
+    summary.appendChild(card('vrp', 'PREMIUMS SAVED',     fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0)),
+      'private premiums you avoid during the bridge'));
   }
 
   function card(cls, title, big, sub, extras) {
@@ -871,31 +1024,31 @@
 
   function renderOutputs() {
     const proj = projectScenarios(state);
-    const stayNPV   = npvAtRetirement(proj.stay, state);
-    const layoffNPV = npvAtRetirement(proj.layoff, state);
-    const vrpNPV    = npvAtRetirement(proj.vrp, state);
+    const stayBal   = balanceAtRetirement(proj.stay, state);
+    const layoffBal = balanceAtRetirement(proj.layoff, state);
+    const vrpBal    = balanceAtRetirement(proj.vrp, state);
 
     // Cards
     const cards = document.getElementById('cards');
     cards.innerHTML = '';
-    cards.appendChild(card('stay', 'STAY', fmtUSD(stayNPV), `${yearsFunded(proj.stay, state)} yrs funded post-retire`, [
+    cards.appendChild(card('stay', 'STAY', fmtUSD(stayBal), `${yearsFunded(proj.stay, state)} yrs funded post-retire`, [
       ['Work yrs left', String(Math.max(0, state.profile.retireAge - state.profile.age))],
       ['Annual save', fmtUSD(state.profile.salary*0.15 + state.profile.rsuAnnual*0.5)],
     ]));
-    cards.appendChild(card('layoff', 'LAYOFF', fmtUSD(layoffNPV), `${yearsFunded(proj.layoff, state)} yrs funded`, [
+    cards.appendChild(card('layoff', 'LAYOFF', fmtUSD(layoffBal), `${yearsFunded(proj.layoff, state)} yrs funded`, [
       ['Severance (gross)', fmtUSD(state.profile.salary/52 * (state.layoff.severanceWeeksBase + state.layoff.severanceWeeksPerYear*state.profile.yearsService))],
       ['Gap (months)', String(state.layoff.timeToJobMonths)],
     ]));
-    cards.appendChild(card('vrp', 'VRP', fmtUSD(vrpNPV), `${yearsFunded(proj.vrp, state)} yrs funded`, [
+    cards.appendChild(card('vrp', 'VRP', fmtUSD(vrpBal), `${yearsFunded(proj.vrp, state)} yrs funded`, [
       ['Offer cash (net)', fmtUSD(proj.offerCashNet)],
-      ['Health bridge', fmtUSD(offerHealthMonths(state)/12 * healthValuePerYear(state))],
+      ['Premiums saved', fmtUSD(effectiveOfferHealthMonths(state) * (state.profile.privateHealthMonthly || 0))],
     ]));
 
     // Bars
-    const max = Math.max(Math.abs(stayNPV), Math.abs(layoffNPV), Math.abs(vrpNPV), 1);
+    const max = Math.max(Math.abs(stayBal), Math.abs(layoffBal), Math.abs(vrpBal), 1);
     const bars = document.getElementById('bars');
     bars.innerHTML = '';
-    for (const [lbl, val, cls] of [['STAY', stayNPV, 'stay'],['LAYOFF', layoffNPV, 'layoff'],['VRP', vrpNPV, 'vrp']]) {
+    for (const [lbl, val, cls] of [['STAY', stayBal, 'stay'],['LAYOFF', layoffBal, 'layoff'],['VRP', vrpBal, 'vrp']]) {
       const row = el('div', { class: 'bar-row' });
       row.appendChild(el('div', { class: 'lbl' }, lbl));
       const bar = el('div', { class: 'bar' });
@@ -913,26 +1066,62 @@
     // Breakpoint
     const bp = breakpointCash(state);
     const offerCash = computeOfferCash(state);
+    // "Effectively zero" if breakpoint is tiny relative to a year of salary \u2014
+    // e.g., when STAY itself ends underwater so any offer beats it.
+    const bpEffectivelyZero = bp < state.profile.salary * 0.05;
     const pct = bp > 0 ? offerCash / bp : 0;
-    document.getElementById('bp-amount').textContent = fmtUSD(bp);
-    document.getElementById('bp-context').textContent = `where NPV(VRP) ≈ NPV(Stay = ${state.profile.retireAge - state.profile.age} more yrs)`;
+    document.getElementById('bp-amount').textContent = bpEffectivelyZero ? '\u2248 $0' : fmtUSD(bp);
+    document.getElementById('bp-context').textContent = bpEffectivelyZero
+      ? 'STAY ends underwater \u2014 any offer beats it'
+      : `projected VRP balance \u2248 STAY balance at age ${state.profile.retireAge}`;
     document.getElementById('bp-offer').textContent = fmtUSD(offerCash);
-    document.getElementById('bp-pct').textContent = `${(pct*100).toFixed(0)}% of breakpoint`;
-
-    const reqCollege = collegeRequired(state);
-    const collegeOK = vrpNPV > reqCollege;
-    document.getElementById('bp-college').textContent = reqCollege > 0 ? fmtUSD(reqCollege) : '—';
+    if (bpEffectivelyZero) {
+      document.getElementById('bp-pct').textContent = 'breakpoint near zero';
+    } else if (pct >= 10) {
+      document.getElementById('bp-pct').textContent = `${pct.toFixed(1)}\u00d7 the breakpoint`;
+    } else {
+      const pctNum = Math.round(pct * 100);
+      document.getElementById('bp-pct').textContent = `${pctNum.toLocaleString()}% of breakpoint`;
+    }
 
     // Verdict
+    // When breakpoint is effectively zero (STAY underwater), treat the offer as comfortably above.
+    const effectivePct = bpEffectivelyZero ? 2 : pct;
     let label, sub, color;
-    if (pct >= 1.10)      { label = 'TAKE';        color = 'green';  sub = 'Offer comfortably exceeds your breakpoint.'; }
-    else if (pct >= 1.00) { label = 'LEAN TAKE';   color = 'green';  sub = 'Offer is at or above breakpoint.'; }
-    else if (pct >= 0.90) { label = 'LEAN STAY';   color = 'yellow'; sub = 'Offer is close — negotiate or weigh non-financials.'; }
-    else                  { label = 'STAY';        color = 'red';    sub = 'Offer is materially below your breakpoint.'; }
+    if (effectivePct >= 1.10)      { label = 'TAKE';        color = 'green';  sub = 'Offer comfortably exceeds your breakpoint.'; }
+    else if (effectivePct >= 1.00) { label = 'LEAN TAKE';   color = 'green';  sub = 'Offer is at or above breakpoint.'; }
+    else if (effectivePct >= 0.90) { label = 'LEAN STAY';   color = 'yellow'; sub = 'Offer is close \u2014 negotiate or weigh non-financials.'; }
+    else                           { label = 'STAY';        color = 'red';    sub = 'Offer is materially below your breakpoint.'; }
 
     const lt = document.getElementById('vlight'); lt.className = 'light ' + color;
     const vt = document.getElementById('vtext');  vt.className = 'vlabel ' + color; vt.textContent = label;
     document.getElementById('vsub').textContent = sub;
+
+    // Mirror the verdict in the hero so the headline reflects the live recommendation
+    // instead of looking like a static decoration.
+    const heroMain = document.getElementById('hero-verdict');
+    const heroAlt  = document.getElementById('hero-verdict-alt');
+    const heroSub  = document.getElementById('hero-sub');
+    if (heroMain && heroAlt && heroSub) {
+      const heroColorVar = color === 'green' ? 'var(--neon-green)'
+                         : color === 'yellow' ? 'var(--neon-amber)'
+                         : 'var(--neon-red)';
+      const heroShadow   = color === 'green' ? '0 0 24px rgba(0,255,0,0.45)'
+                         : color === 'yellow' ? '0 0 24px rgba(255,159,67,0.45)'
+                         : '0 0 24px rgba(255,51,85,0.45)';
+      heroMain.textContent = label;
+      heroMain.style.color = heroColorVar;
+      heroMain.style.textShadow = heroShadow;
+      // Counter-word for context
+      const counter = (label === 'TAKE' || label === 'LEAN TAKE') ? 'STAY' : 'TAKE';
+      heroAlt.textContent = counter;
+      const heroPct = bpEffectivelyZero
+        ? 'STAY ends underwater \u2014 any offer beats it'
+        : pct >= 10
+          ? `${pct.toFixed(1)}\u00d7 the breakpoint cash`
+          : `${Math.round(pct*100).toLocaleString()}% of your breakpoint cash`;
+      heroSub.textContent = `Live verdict: offer is ${heroPct}. Details in panel [04].`;
+    }
   }
 
   function drawLineChart(proj) {
