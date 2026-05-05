@@ -401,9 +401,10 @@
               <span class="stay">STAY</span><span class="layoff">LAYOFF</span><span class="vrp">VRP</span>
             </div>
           </div>
-          <div class="chart-wrap" style="margin-top:16px">
+          <div class="chart-wrap" style="margin-top:16px; position: relative;">
             <div class="chart-title">PROJECTED PORTFOLIO BALANCE OVER TIME</div>
-            <svg id="line-chart" viewBox="0 0 800 280" preserveAspectRatio="none" style="width:100%;height:280px;"></svg>
+            <svg id="line-chart" viewBox="0 0 800 280" preserveAspectRatio="none" style="width:100%;height:280px; display:block;"></svg>
+            <div id="chart-tooltip" style="display:none; position:absolute; pointer-events:none; background: var(--cyber-black); color: var(--text); border: 1px solid var(--neon-cyan); box-shadow: 0 0 12px rgba(0,243,255,0.4); padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; z-index: 5; white-space: nowrap;"></div>
             <div class="legend">
               <span class="stay">STAY</span><span class="layoff">LAYOFF</span><span class="vrp">VRP</span>
             </div>
@@ -486,8 +487,7 @@
       salary: 187500,        // Total Rewards → Overview → Cash → "Annual base pay"
       bonusAmount: 27000,    // Total Rewards → Overview → Cash → "Annual bonus"
       septBonus: 20000,      // Portion of annual bonus paid as a single September lump (forfeited if you separate before Sept)
-      rsuAnnual: 73000,      // Total Rewards → Stock → "Total stock value granted in the last 12 months"
-      septRsuVest: 50000,    // Portion of annual RSU grant that vests as a September tranche (forfeited if you separate before Sept)
+      septRsuVest: 50000,    // Annual RSU vest — a September tranche (forfeited if you separate before Sept). Also used as the RSU run-rate for vesting-continuation valuation.
       rsuUnvested: 192000,   // Total Rewards → Stock → Quick info → "Total unvested value"
       vestingUnlocked: false,  // Microsoft "rule of 65/55": age 55+ and 15+ yrs of service → unvested RSUs continue vesting after separation
       privateHealthMonthly: 3000, // out-of-pocket monthly premium for private (ACA/marketplace) coverage after employer/COBRA ends, until Medicare at 65
@@ -564,8 +564,11 @@
         parsed.profile.septBonus = 20000;
       }
       if (parsed && parsed.profile && parsed.profile.septRsuVest === undefined) {
-        parsed.profile.septRsuVest = 50000;
+        // If older save had rsuAnnual, fold its value into septRsuVest so the user keeps a sensible default.
+        parsed.profile.septRsuVest = parsed.profile.rsuAnnual || 50000;
       }
+      // Drop deprecated rsuAnnual from older saves (now subsumed by septRsuVest).
+      if (parsed && parsed.profile) delete parsed.profile.rsuAnnual;
       if (parsed && parsed.offerPre && parsed.offerPre.acceptanceMonthsFromNow === undefined) {
         parsed.offerPre.acceptanceMonthsFromNow = 1;
       }
@@ -592,12 +595,10 @@
   function annualSavings(s) {
     // Single source of truth — used by both project() and the STAY card display
     // so they can never drift out of sync. The September bonus & RSU tranche are
-    // discrete events handled separately by project(); they are excluded from the
-    // smoothed annual savings here so we don't double-count them.
+    // discrete events handled separately by project(); they are excluded from this
+    // smoothed annual savings number so we don't double-count them.
     const bonusResidual = Math.max(0, (s.profile.bonusAmount || 0) - (s.profile.septBonus || 0));
-    const rsuResidual   = Math.max(0, (s.profile.rsuAnnual   || 0) - (s.profile.septRsuVest || 0));
     return s.profile.salary * MODEL.SAVINGS_RATE_SALARY
-         + rsuResidual * MODEL.SAVINGS_RATE_RSU
          + bonusResidual * MODEL.SAVINGS_RATE_BONUS;
   }
 
@@ -637,29 +638,31 @@
   }
 
   /**
-   * Build a per-year portfolio trajectory.
-   * Returns { traj: [{year, age, balance}], retireStartIdx } from now to a horizon.
+   * Build a per-MONTH portfolio trajectory (12 entries per year).
+   * Returns { traj: [{ t, age, balance, dateMs }], retireStartIdx } from now to a horizon.
+   * Monthly resolution is needed so discrete events (separation lump, September bonus + RSU
+   * tranche) appear as visible step-changes on the chart instead of being smeared across
+   * a year.
+   *
    * Each scenario starts from a notional balance = 0 (we model marginal differences).
    *
    * Phase model:
-   *   t=0 .. separationYears   → still employed at full salary, contributing, employer health.
+   *   t=0 .. separationYears   → still employed at full salary, contributing monthly.
    *   at t=separationYears     → startCashAtSeparation lump arrives (severance / VRP cash).
    *   then gapYears            → no contributions; small drawdown for living costs.
    *   then workYears           → working at workSalary (e.g., 90% in re-employment).
    *   then retired             → withdrawal phase begins.
    *
-   * Spending: at each year we pick spending by age — bridgeSpending while age < retireAge
-   * during the withdrawal phase, retireSpending once age >= retireAge. Social Security
-   * (adjusted for claim age) reduces required portfolio withdrawals once age >= ssStartAge.
-   *
-   * Health: employerHealthMonths counts months of employer/COBRA-paid coverage measured from t=separationYears.
-   * Pre-separation is always covered. From separation onward, any uncovered months before Medicare age
-   * cost privateHealthMonthly out-of-pocket.
+   * Sept lump (bonus + RSU vest) is captured the month it lands IF that calendar month is
+   * still pre-separation. The actual "today" date is read from the Date object so the
+   * model knows how many months until the next September.
    */
   function projectScenarios(s) {
     const r = s.assumptions.realReturnPct;
+    const monthlyGrowth = Math.pow(1 + r/100, 1/12);
     const horizonAge = s.profile.retireAge + MODEL.HORIZON_YEARS_AFTER_RETIRE;
-    const years = Math.max(1, horizonAge - s.profile.age);
+    const yearsHorizon = Math.max(1, horizonAge - s.profile.age);
+    const monthsTotal = yearsHorizon * 12;
     const tax = s.assumptions.taxRatePct / 100;
     const retireSpend = s.assumptions.retireSpending;
     const bridgeSpend = retireSpend * (s.assumptions.bridgeSpendingPct / 100);
@@ -667,80 +670,89 @@
                      * ssClaimMultiplier(s.assumptions.ssStartAge);
     const annSaveWorking = annualSavings(s);
 
+    const now = new Date();
+    const nowYear = now.getFullYear();
+    const nowMonth = now.getMonth(); // 0-indexed
+    const nowMs = now.getTime();
+    // Helper: ms timestamp at the start of projection-month m (m=0 is "today").
+    function dateMsAt(m) {
+      return new Date(nowYear, nowMonth + m, now.getDate()).getTime();
+    }
+
     function project(opts) {
       const { startCashAtSeparation = 0, separationYears = 0,
               workYears = 0, workSalary = s.profile.salary, gapYears = 0,
               employerHealthMonths = Infinity } = opts;
-      // Initial state at t = today. If separation happens at t=0 (e.g., VRP accepted today
-      // with no waiting period), the lump is already in hand and visible at traj[0] so the
-      // chart shows an immediate jump rather than a year-long ramp.
+      const reEmpAnnSave = workSalary * MODEL.SAVINGS_RATE_SALARY
+                        + (s.profile.septRsuVest || 0) * MODEL.SAVINGS_RATE_RSU * (workSalary / Math.max(1, s.profile.salary));
+      // Initial state at t = today. If separation happens at t=0, the lump is already in
+      // hand and visible at traj[0] so the chart shows an immediate jump.
       let bal = (separationYears <= 0) ? startCashAtSeparation : 0;
       let lumpAdded = (separationYears <= 0);
-      let age = s.profile.age;
       const out = [];
-      const reEmpAnnSave = workSalary * MODEL.SAVINGS_RATE_SALARY
-                        + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU * (workSalary / s.profile.salary);
-      const retireStartIdx = Math.max(0, Math.ceil(separationYears + gapYears + workYears));
 
-      for (let y = 0; y <= years; y++) {
-        out.push({ year: y, age, balance: bal });
-        bal = bal * (1 + r/100);
+      for (let m = 0; m <= monthsTotal; m++) {
+        const t = m / 12;
+        const age = s.profile.age + t;
+        const dateMs = dateMsAt(m);
+        out.push({ t, age, balance: bal, dateMs });
+        if (m === monthsTotal) break;
 
-        // ---- Pre-separation contributions (prorated for the partial year that contains separation)
-        const empFracThisYear = Math.max(0, Math.min(1, separationYears - y));
-        if (empFracThisYear > 0) {
-          bal += annSaveWorking * empFracThisYear;
+        // Monthly compound growth.
+        bal *= monthlyGrowth;
+
+        // ---- Pre-separation savings (smoothed monthly).
+        if (t < separationYears) {
+          // Prorate the month if the separation lands inside it.
+          const monthEnd = (m + 1) / 12;
+          const empFracMonth = Math.max(0, Math.min(1, (separationYears - t) * 12));
+          bal += (annSaveWorking / 12) * empFracMonth;
         }
 
-        // ---- Separation lump: add it in the first year where the separation point has passed.
-        if (!lumpAdded && (y + 1) >= separationYears) {
+        // ---- Separation lump: fires once, in the month containing the separation point.
+        if (!lumpAdded && (m + 1) / 12 > separationYears) {
           bal += startCashAtSeparation;
           lumpAdded = true;
         }
 
-        // ---- Post-separation activity for the post-sep portion of this year.
-        const postFrac = 1 - empFracThisYear;
-        if (postFrac > 0 && y + 1 > separationYears) {
-          const yPostStart = Math.max(0, y - separationYears);
-          const yPostEnd   = (y + 1) - separationYears;
-          // Determine which post-sep phase the *end* of the year falls in. We don't try
-          // to split a year across phase boundaries (gap → work → withdrawal); the tail
-          // phase wins for the prorated portion. This is a small approximation that
-          // keeps the model readable.
-          if (yPostEnd <= gapYears) {
-            bal -= s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax) * postFrac;
-          } else if (yPostEnd <= gapYears + workYears) {
-            bal += reEmpAnnSave * postFrac;
+        // ---- Post-separation activity (gap → work → withdrawal).
+        if ((m + 1) / 12 > separationYears) {
+          const tPost = Math.max(0, t - separationYears);
+          if (tPost < gapYears) {
+            bal -= (s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax)) / 12;
+          } else if (tPost < gapYears + workYears) {
+            bal += reEmpAnnSave / 12;
           } else {
             const annualDraw = age < s.profile.retireAge ? bridgeSpend : retireSpend;
-            const ssThisYear = age >= s.assumptions.ssStartAge ? ssAnnual : 0;
-            bal -= Math.max(0, annualDraw - ssThisYear) * postFrac;
+            const ssThisMonth = age >= s.assumptions.ssStartAge ? ssAnnual : 0;
+            bal -= Math.max(0, annualDraw - ssThisMonth) / 12;
           }
         }
 
         // ---- September bonus + RSU vest tranche.
-        // The Sept payout for projection-year y lands at calendar time septFracYearsFromNow(y)
-        // measured from "today". Capture it iff that date is strictly before the separation
-        // (you must still be employed at the current employer when Sept arrives).
-        const septT = septFracYearsFromNow(y);
-        if (septT < separationYears) {
-          bal += (s.profile.septBonus || 0) * MODEL.SAVINGS_RATE_BONUS;
-          bal += (s.profile.septRsuVest || 0) * MODEL.SAVINGS_RATE_RSU;
-        }
-
-        // ---- Private health premiums (post-separation, pre-Medicare) for any month not covered.
-        if (age < MODEL.MEDICARE_AGE && y + 1 > separationYears) {
-          const yearStartMonth = Math.max(0, (y - separationYears)) * 12;
-          const yearEndMonth   = ((y + 1) - separationYears) * 12;
-          const coveredEndMonth = Math.max(0, employerHealthMonths);
-          const uncoveredStart = Math.max(yearStartMonth, coveredEndMonth);
-          const uncoveredMonthsThisYear = Math.max(0, yearEndMonth - uncoveredStart);
-          if (uncoveredMonthsThisYear > 0) {
-            bal -= uncoveredMonthsThisYear * (s.profile.privateHealthMonthly || 0);
+        // Captured in the month whose calendar month index equals SEPT_PAYOUT_MONTH (8 = Sept),
+        // provided you are still employed (Sept date < separation date).
+        const calMonthThis = (nowMonth + m) % 12;
+        if (calMonthThis === MODEL.SEPT_PAYOUT_MONTH) {
+          // Sept payout assumed at mid-month. Capture iff that point precedes separation.
+          const septT = t + 0.5/12;
+          if (septT < separationYears) {
+            bal += (s.profile.septBonus || 0) * MODEL.SAVINGS_RATE_BONUS;
+            bal += (s.profile.septRsuVest || 0) * MODEL.SAVINGS_RATE_RSU;
           }
         }
-        age++;
+
+        // ---- Private health premium (post-separation, pre-Medicare, uncovered months only).
+        if (age < MODEL.MEDICARE_AGE && (m + 1) / 12 > separationYears) {
+          const monthsSinceSep = (t - separationYears) * 12;
+          if (monthsSinceSep >= employerHealthMonths) {
+            bal -= (s.profile.privateHealthMonthly || 0);
+          }
+        }
       }
+      // retireStartIdx: month index where the withdrawal phase begins.
+      const retireStartIdx = Math.min(out.length - 1,
+        Math.max(0, Math.round((separationYears + gapYears + workYears) * 12)));
       return { traj: out, retireStartIdx };
     }
 
@@ -778,7 +790,7 @@
       employerHealthMonths: layoffHealthMonths,
     });
 
-    // VRP — immediate separation, no further work.
+    // VRP — separation after acceptance window.
     const offerCash = computeOfferCash(s);
     const offerCashNet = offerCash * (1 - tax);
     const employerBridgeMonths = effectiveOfferHealthMonths(s);
@@ -788,10 +800,11 @@
     // Stock vesting value preserved by the offer:
     //   - If RSUs are "unlocked" (rule of 55+15) you keep them whether you take the offer or stay —
     //     no offer advantage, so vestingValue = 0.
-    //   - Otherwise, vestingMonths/12 × rsuAnnual would otherwise be forfeited — real start cash.
+    //   - Otherwise, vestingMonths/12 × septRsuVest (the annual RSU run-rate) would otherwise be
+    //     forfeited — real start cash.
     const vestingValue = s.profile.vestingUnlocked
       ? 0
-      : (offerVestingMonths(s) / 12) * s.profile.rsuAnnual;
+      : (offerVestingMonths(s) / 12) * (s.profile.septRsuVest || 0);
     const vrpStart = offerCashNet + vestingValue;
     // Acceptance window: VRP separation happens this far in the future. Lets the Sept
     // bonus/RSU lump be captured if separation lands after the next September date.
@@ -816,19 +829,21 @@
 
   function balanceAtRetirement(traj, s) {
     if (!traj || !traj.length) return 0;
-    const idx = Math.max(0, Math.min(traj.length - 1, s.profile.retireAge - s.profile.age));
+    // Monthly resolution: index = months from now to retire age.
+    const monthsToRetire = Math.max(0, (s.profile.retireAge - s.profile.age) * 12);
+    const idx = Math.min(traj.length - 1, Math.round(monthsToRetire));
     return traj[idx].balance;
   }
 
   // Years after the scenario's withdrawal-phase start until balance hits zero.
-  // We use end-of-year balances (traj[i+1]) so that VRP (which receives its lump
-  // *during* its first retirement year) is counted correctly.
+  // retireStartIdx is now a MONTH index. We sample the end of each subsequent year
+  // (12 months later) and count consecutive years that finish with a positive balance.
   function yearsFunded(traj, retireStartIdx) {
     if (!traj || traj.length < 2) return 0;
-    const start = Math.max(0, Math.min(traj.length - 2, retireStartIdx));
     let count = 0;
-    for (let i = start; i < traj.length - 1; i++) {
-      if (traj[i + 1].balance > 0) count++; else break;
+    let i = retireStartIdx + 12;
+    while (i < traj.length) {
+      if (traj[i].balance > 0) { count++; i += 12; } else break;
     }
     return count;
   }
@@ -962,7 +977,7 @@
       'Copy these straight from your Microsoft Total Rewards portal:' +
       '<ul>' +
         '<li>Open <a href="https://totalrewards.azurefd.net/" target="_blank" rel="noopener">totalrewards.azurefd.net</a> \u2192 <b>Overview</b> \u2192 <b>Cash</b> card. Use <b>Annual base pay</b> and <b>Annual bonus</b>.</li>' +
-        '<li>Then \u2192 <b>Stock</b>. Use <b>Total stock value granted in the last 12 months</b> and Quick info \u2192 <b>Total unvested value</b>.</li>' +
+        '<li>Then \u2192 <b>Stock</b>. Use Quick info \u2192 <b>Total unvested value</b>. The annual September RSU vest goes in the field below.</li>' +
       '</ul>' +
       'Tip: ignore the big "Total rewards" headline number \u2014 it bundles benefits the model already values separately.'
     });
@@ -971,9 +986,7 @@
     g2.appendChild(numberField('Annual base pay ($)', () => p.salary, v => p.salary = v, { step: 1000 },
       'From Total Rewards → Overview → Cash card → "Annual base pay". Gross base salary. Anchors VRP cash multiples, severance value, and per-year savings rate.'));
     g2.appendChild(numberField('Annual bonus ($)', () => p.bonusAmount, v => p.bonusAmount = v, { step: 500 },
-      'From Total Rewards → Overview → Cash card → "Annual bonus" (the dollar amount, not a percent). About 40% of bonus is treated as savings in the STAY scenario.'));
-    g2.appendChild(numberField('Annual stock grant value ($)', () => p.rsuAnnual, v => p.rsuAnnual = v, { step: 1000 },
-      'From Total Rewards → Stock → "Total stock value granted in the last 12 months". Used as a per-year RSU run-rate; about 50% is assumed to be saved in the STAY scenario.'));
+      'From Total Rewards → Overview → Cash card → "Annual bonus" (the dollar amount, not a percent). About 40% of bonus is treated as savings in the STAY scenario. The portion paid in September is set below; the rest is treated as a smoothed monthly contribution.'));
     g2.appendChild(numberField('Total unvested stock value ($)', () => p.rsuUnvested, v => p.rsuUnvested = v, { step: 1000 },
       'From Total Rewards → Stock → Quick info → "Total unvested value". This is what you would forfeit by leaving (unless the offer continues vesting).'));
     body.appendChild(g2);
@@ -998,8 +1011,8 @@
     const gSept = el('div', { class: 'grid2' });
     gSept.appendChild(numberField('September bonus payout ($)', () => p.septBonus, v => p.septBonus = Math.max(0, Math.min(p.bonusAmount || 0, v)), { step: 1000 },
       'The portion of your annual bonus paid as a single lump in September. Capped at "Annual bonus" above. Forfeited entirely if you separate before that September.'));
-    gSept.appendChild(numberField('September RSU vest tranche ($)', () => p.septRsuVest, v => p.septRsuVest = Math.max(0, Math.min(p.rsuAnnual || 0, v)), { step: 1000 },
-      'The portion of your annual RSU grant that vests in a single September tranche (e.g., your largest yearly vest). Capped at "Annual stock grant value" above. Forfeited entirely if you separate before that September.'));
+    gSept.appendChild(numberField('September RSU vest tranche ($)', () => p.septRsuVest, v => p.septRsuVest = Math.max(0, v), { step: 1000 },
+      'The RSU value that vests in September each year (your annual RSU run-rate, treated as a single September tranche). About 50% is assumed to be saved. Forfeited entirely if you separate before that September. Also used as the run-rate for the offer\u2019s vesting-continuation valuation.'));
     body.appendChild(gSept);
 
     body.appendChild(checkField('RSU vesting unlocked (rule of 55+15)?', () => p.vestingUnlocked, v => { p.vestingUnlocked = v; renderOffer(); },
@@ -1279,6 +1292,7 @@
 
   function drawLineChart(proj) {
     const svg = document.getElementById('line-chart');
+    const tooltip = document.getElementById('chart-tooltip');
     const W = 800, H = 280, padL = 50, padR = 12, padT = 10, padB = 24;
     const series = [
       { data: proj.stay,   color: 'var(--neon-cyan)',    name: 'STAY' },
@@ -1305,34 +1319,99 @@
       const zy = yAt(0);
       svgHTML += `<line x1="${padL}" y1="${zy}" x2="${W-padR}" y2="${zy}" stroke="#4a5565" stroke-dasharray="3,3"/>`;
     }
-    // x ticks: explicit anchors so the rightmost age is always labeled.
-    const ages = proj.stay.map(d => d.age);
-    const retireIdx = state.profile.retireAge - state.profile.age;
-    const tickAges = new Set();
-    tickAges.add(ages[0]);
-    if (retireIdx >= 0 && retireIdx < ages.length) tickAges.add(ages[retireIdx]);
+    // x ticks: labels at start, retire, retire+5, retire+10, retire+15, end (in WHOLE-YEAR ages).
+    // Indices are now monthly, so multiply target year-offsets by 12.
+    const startAge = proj.stay[0].age;
+    const retireMonthIdx = (state.profile.retireAge - state.profile.age) * 12;
+    const tickIdxs = new Set([0]);
+    if (retireMonthIdx >= 0 && retireMonthIdx < n) tickIdxs.add(retireMonthIdx);
     for (const off of [5, 10, 15]) {
-      const i = retireIdx + off;
-      if (i > 0 && i < ages.length) tickAges.add(ages[i]);
+      const i = retireMonthIdx + off * 12;
+      if (i > 0 && i < n) tickIdxs.add(i);
     }
-    tickAges.add(ages[ages.length - 1]);
-    for (const tickAge of tickAges) {
-      const i = ages.indexOf(tickAge);
-      if (i < 0) continue;
+    tickIdxs.add(n - 1);
+    for (const i of tickIdxs) {
       const x = xAt(i);
-      svgHTML += `<text x="${x}" y="${H-6}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="middle">${tickAge}</text>`;
+      const ageHere = Math.round(proj.stay[i].age);
+      svgHTML += `<text x="${x}" y="${H-6}" fill="#4a5565" font-family="Share Tech Mono" font-size="10" text-anchor="middle">${ageHere}</text>`;
     }
     // retire age marker
-    if (retireIdx >= 0 && retireIdx < n) {
-      const x = xAt(retireIdx);
+    if (retireMonthIdx >= 0 && retireMonthIdx < n) {
+      const x = xAt(retireMonthIdx);
       svgHTML += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${H-padB}" stroke="#4a5565" stroke-dasharray="2,4"/>`;
       svgHTML += `<text x="${x+4}" y="${padT+12}" fill="#7c8aa1" font-family="Share Tech Mono" font-size="10">RETIRE</text>`;
     }
+    // Series polylines
     for (const s of series) {
       const pts = s.data.map((d, i) => `${xAt(i)},${yAt(d.balance)}`).join(' ');
       svgHTML += `<polyline fill="none" stroke="${s.color}" stroke-width="2" points="${pts}" style="filter: drop-shadow(0 0 4px ${s.color});"/>`;
     }
+    // Hover: vertical line + 3 dots, rendered last so they're on top.
+    svgHTML += `<line id="chart-hover-line" x1="0" y1="${padT}" x2="0" y2="${H-padB}" stroke="var(--neon-cyan)" stroke-width="1" stroke-dasharray="2,2" opacity="0"/>`;
+    for (const s of series) {
+      const colorAttr = s.color.startsWith('var') ? s.color : s.color;
+      svgHTML += `<circle class="chart-hover-dot" data-name="${s.name}" cx="0" cy="0" r="3.5" fill="${colorAttr}" stroke="#000" stroke-width="1" opacity="0"/>`;
+    }
+    // Invisible overlay capturing the mouse across the plot area.
+    svgHTML += `<rect id="chart-hover-overlay" x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}" fill="transparent" pointer-events="all" style="cursor:crosshair"/>`;
     svg.innerHTML = svgHTML;
+
+    // ---- Hover wiring (re-bound each render because innerHTML replaces the nodes).
+    const overlay = document.getElementById('chart-hover-overlay');
+    const hoverLine = document.getElementById('chart-hover-line');
+    const dots = svg.querySelectorAll('.chart-hover-dot');
+    function svgPointFromClient(evt) {
+      const pt = svg.createSVGPoint();
+      pt.x = evt.clientX; pt.y = evt.clientY;
+      return pt.matrixTransform(svg.getScreenCTM().inverse());
+    }
+    function nearestIdxFromX(svgX) {
+      const frac = (svgX - padL) / (W - padL - padR);
+      return Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1))));
+    }
+    function fmtDate(ms) {
+      const d = new Date(ms);
+      return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+    overlay.addEventListener('mousemove', (evt) => {
+      const p = svgPointFromClient(evt);
+      const idx = nearestIdxFromX(p.x);
+      const x = xAt(idx);
+      hoverLine.setAttribute('x1', x); hoverLine.setAttribute('x2', x);
+      hoverLine.setAttribute('opacity', '0.8');
+      dots.forEach((dot, i) => {
+        const d = series[i].data[idx];
+        dot.setAttribute('cx', x);
+        dot.setAttribute('cy', yAt(d.balance));
+        dot.setAttribute('opacity', '1');
+      });
+      // Tooltip in HTML coordinates (relative to chart-wrap).
+      const wrapRect = svg.parentElement.getBoundingClientRect();
+      const svgRect  = svg.getBoundingClientRect();
+      // Map svg-coord x to pixel x within the wrap.
+      const pxX = svgRect.left - wrapRect.left + (x / W) * svgRect.width;
+      const sample = series[0].data[idx];
+      const dateLabel = sample.dateMs ? fmtDate(sample.dateMs) : `age ${sample.age.toFixed(1)}`;
+      tooltip.innerHTML =
+        `<div style="color: var(--neon-cyan); font-family: var(--font-display); font-weight:700; letter-spacing:0.1em; font-size:10px; margin-bottom:4px;">${dateLabel} \u00b7 age ${sample.age.toFixed(1)}</div>` +
+        series.map((s, i) => {
+          const v = s.data[idx].balance;
+          const sign = v < 0 ? '-' : '';
+          const colorVar = i === 0 ? 'var(--neon-cyan)' : i === 1 ? 'var(--neon-amber)' : 'var(--neon-magenta)';
+          return `<div><span style="display:inline-block; width:10px; height:10px; background:${colorVar}; box-shadow:0 0 4px ${colorVar}; margin-right:6px; vertical-align:middle;"></span><b>${s.name}:</b> ${sign}$${fmtUSDk(Math.abs(v))}</div>`;
+        }).join('');
+      tooltip.style.display = 'block';
+      // Position tooltip; flip to the left of the cursor when nearing the right edge.
+      const tipW = tooltip.offsetWidth || 160;
+      const flip = pxX + tipW + 16 > wrapRect.width;
+      tooltip.style.left = (flip ? (pxX - tipW - 12) : (pxX + 12)) + 'px';
+      tooltip.style.top  = '8px';
+    });
+    overlay.addEventListener('mouseleave', () => {
+      hoverLine.setAttribute('opacity', '0');
+      dots.forEach(d => d.setAttribute('opacity', '0'));
+      tooltip.style.display = 'none';
+    });
   }
 
   function rerender() { save(); renderProfile(); renderOffer(); renderOutputs(); }
