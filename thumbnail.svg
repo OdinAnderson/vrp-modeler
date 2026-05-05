@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" font-family="'Orbitron', system-ui, sans-serif">
+  <defs>
+    <radialGradient id="bg1" cx="50%" cy="-10%" r="80%">
+      <stop offset="0%" stop-color="#00f3ff" stop-opacity="0.18"/>
+      <stop offset="60%" stop-color="#00f3ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg2" cx="100%" cy="100%" r="70%">
+      <stop offset="0%" stop-color="#ff00ff" stop-opacity="0.16"/>
+      <stop offset="60%" stop-color="#ff00ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1b2030" stroke-width="1"/>
+    </pattern>
+    <pattern id="scan" width="3" height="3" patternUnits="userSpaceOnUse">
+      <rect width="3" height="1" fill="#ffffff" opacity="0.025"/>
+    </pattern>
+    <filter id="glowCyan" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowMagenta" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#050505"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#bg1)"/>
+  <rect width="1200" height="630" fill="url(#bg2)"/>
+  <rect width="1200" height="630" fill="url(#scan)"/>
+
+  <!-- Header bar -->
+  <line x1="60" y1="80" x2="1140" y2="80" stroke="#1b2030" stroke-width="1"/>
+  <text x="60" y="62" font-size="16" font-weight="900" letter-spacing="3" fill="#00f3ff" filter="url(#glowCyan)">VRP // OFFER MODELER</text>
+  <text x="1140" y="62" font-size="12" font-weight="700" letter-spacing="3" fill="#7c8aa1" text-anchor="end">v0.1 · CARE · CLARITY · CONTINUITY</text>
+
+  <!-- Hero headline -->
+  <g transform="translate(60, 200)">
+    <text font-size="120" font-weight="900" letter-spacing="4">
+      <tspan fill="#00f3ff" filter="url(#glowCyan)">TAKE</tspan>
+      <tspan fill="none" stroke="#1b2030" stroke-width="1.5" dx="20">·OR·</tspan>
+      <tspan fill="#ff00ff" filter="url(#glowMagenta)" dx="20">STAY</tspan>
+    </text>
+    <text y="60" font-size="120" font-weight="900" letter-spacing="4">
+      <tspan fill="none" stroke="#1b2030" stroke-width="1.5">·</tspan>
+      <tspan fill="#0f0" filter="url(#glowGreen)" dx="10">DECIDE</tspan>
+      <tspan fill="none" stroke="#1b2030" stroke-width="1.5" dx="20">·</tspan>
+    </text>
+  </g>
+
+  <!-- Tagline -->
+  <text x="60" y="380" font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="32" fill="#7c8aa1">
+    Personal breakpoint analysis for voluntary retirement programs.
+  </text>
+
+  <!-- Mini chart -->
+  <g transform="translate(60, 440)">
+    <rect width="1080" height="140" fill="#0a0a0a" stroke="#1b2030"/>
+    <text x="16" y="22" font-size="11" font-weight="700" letter-spacing="3" fill="#7c8aa1">PROJECTED PORTFOLIO BALANCE</text>
+
+    <!-- gridlines -->
+    <line x1="16" y1="50"  x2="1064" y2="50"  stroke="#1b2030"/>
+    <line x1="16" y1="80"  x2="1064" y2="80"  stroke="#1b2030"/>
+    <line x1="16" y1="110" x2="1064" y2="110" stroke="#1b2030"/>
+
+    <!-- retire marker -->
+    <line x1="640" y1="36" x2="640" y2="128" stroke="#4a5565" stroke-dasharray="2,4"/>
+    <text x="646" y="46" font-size="10" letter-spacing="2" fill="#7c8aa1">RETIRE</text>
+
+    <!-- STAY (cyan) — climbs then drains -->
+    <polyline fill="none" stroke="#00f3ff" stroke-width="2.5"
+      points="16,118 120,108 240,92 360,72 480,52 600,38 640,40 720,55 840,80 960,108 1064,128"
+      filter="url(#glowCyan)"/>
+
+    <!-- LAYOFF (amber) — dip then recover -->
+    <polyline fill="none" stroke="#ff9f43" stroke-width="2.5"
+      points="16,118 120,116 240,118 360,108 480,90 600,72 640,68 720,75 840,92 960,114 1064,130"
+      opacity="0.95"/>
+
+    <!-- VRP (magenta) — high start, gentle drain -->
+    <polyline fill="none" stroke="#ff00ff" stroke-width="2.5"
+      points="16,60 120,62 240,66 360,70 480,76 600,82 640,84 720,90 840,100 960,114 1064,128"
+      filter="url(#glowMagenta)"/>
+
+    <!-- legend -->
+    <g transform="translate(840, 22)" font-size="10" letter-spacing="2" fill="#7c8aa1">
+      <rect width="10" height="10" fill="#00f3ff"/><text x="14" y="9">STAY</text>
+      <rect x="80" width="10" height="10" fill="#ff9f43"/><text x="94" y="9">LAYOFF</text>
+      <rect x="170" width="10" height="10" fill="#ff00ff"/><text x="184" y="9">VRP</text>
+    </g>
+  </g>
+
+  <!-- Traffic light verdict (bottom right) -->
+  <g transform="translate(940, 200)">
+    <rect width="200" height="120" fill="#0a0a0a" stroke="#1b2030"/>
+    <text x="16" y="24" font-size="10" font-weight="700" letter-spacing="3" fill="#7c8aa1">VERDICT</text>
+    <circle cx="40" cy="70" r="18" fill="#0f0" stroke="#0f0" stroke-width="2" filter="url(#glowGreen)"/>
+    <text x="74" y="78" font-size="22" font-weight="900" letter-spacing="3" fill="#0f0" filter="url(#glowGreen)">TAKE</text>
+    <text x="16" y="106" font-size="10" letter-spacing="2" fill="#7c8aa1">≥ 110% of breakpoint</text>
+  </g>
+
+  <!-- Footer -->
+  <line x1="60" y1="600" x2="1140" y2="600" stroke="#1b2030" stroke-width="1"/>
+  <text x="60" y="618" font-size="11" letter-spacing="3" fill="#4a5565">SINGLE-PAGE · OFFLINE-FIRST · NO TELEMETRY</text>
+  <text x="1140" y="618" font-size="11" letter-spacing="3" fill="#0f0" text-anchor="end" filter="url(#glowGreen)">▮ ALL CALCULATIONS RUN IN YOUR BROWSER</text>
+</svg>
