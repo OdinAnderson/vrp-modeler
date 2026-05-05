@@ -414,13 +414,13 @@
 
       <section class="panel">
         <div class="panel-head">
-          <h2>[04] BREAKPOINT ANALYSIS <span class="tip" data-tip="The breakpoint is the cash amount that makes taking the VRP financially equivalent to staying. We compare three scenarios at your planned retirement age — STAY, LAYOFF, VRP — then binary-search for the offer cash that ties the projected VRP portfolio balance with the STAY balance. Hover the question marks on each card for what it means and how it’s computed." tabindex="0">?</span></h2>
+          <h2>[04] BREAKPOINT ANALYSIS <span class="tip" data-tip="The breakpoint is the cash amount that makes taking the VRP financially equivalent to staying. We project all three scenarios — STAY, LAYOFF, VRP — out to the planning horizon (end of the chart) and binary-search for the offer cash that ties the VRP end-of-horizon balance with STAY. Using end-of-horizon instead of balance-at-retirement captures post-retirement effects like the offer's retiree-health subsidy. Hover the question marks on each card for what each one means." tabindex="0">?</span></h2>
           <span class="meta">SOLVE FOR INDIFFERENCE</span>
         </div>
         <div class="panel-body">
           <div class="cards">
             <div class="card breakpt">
-              <h3>BREAKPOINT CASH <span class="tip" data-tip="The smallest gross VRP cash payout that makes the VRP scenario financially equivalent to staying. We binary-search the cash amount until the projected VRP portfolio balance at your planned retirement age equals the projected STAY balance. Anything above this number means the offer is financially favorable; anything below means staying wins on dollars alone." tabindex="0">?</span></h3>
+              <h3>BREAKPOINT CASH <span class="tip" data-tip="The smallest gross VRP cash payout that makes the VRP scenario financially equivalent to staying — measured at the end of the planning horizon (longevity), not just at the retirement date. We binary-search the cash amount until VRP and STAY end the chart at the same balance. Anything above this number means the offer is financially favorable over the long run; anything below means staying wins on dollars alone." tabindex="0">?</span></h3>
               <div class="big" id="bp-amount">—</div>
               <div class="sub" id="bp-context">where projected VRP balance ≈ STAY balance</div>
             </div>
@@ -835,6 +835,15 @@
     return traj[idx].balance;
   }
 
+  // End-of-horizon balance — a continuous proxy for retirement longevity.
+  // Higher = lasted longer (or had a bigger cushion). Used for breakpoint solving
+  // because the offer's retiree-health benefit can flip the verdict AFTER the
+  // retirement date even when balance-at-retire favors STAY.
+  function balanceAtHorizon(traj) {
+    if (!traj || !traj.length) return 0;
+    return traj[traj.length - 1].balance;
+  }
+
   // Years after the scenario's withdrawal-phase start until balance hits zero.
   // retireStartIdx is now a MONTH index. We sample the end of each subsequent year
   // (12 months later) and count consecutive years that finish with a positive balance.
@@ -848,9 +857,12 @@
     return count;
   }
 
-  // Solve for breakpoint cash: projected VRP balance at retire age ≈ STAY balance at retire age
+  // Solve for breakpoint cash: VRP end-of-horizon balance ≈ STAY end-of-horizon balance.
+  // (i.e., the cash that ties the two scenarios on long-run retirement longevity,
+  // not just balance at the retirement date — so post-retirement effects like the
+  // offer's retiree-health subsidy are captured.)
   function breakpointCash(s) {
-    const stayBal = balanceAtRetirement(projectScenarios(s).stay, s);
+    const stayEnd = balanceAtHorizon(projectScenarios(s).stay);
     // binary search on cash amount
     let lo = 0, hi = s.profile.salary * 10;
     for (let i = 0; i < 60; i++) {
@@ -864,8 +876,8 @@
       trial.offerPost.healthType = s.mode === 'post'
         ? s.offerPost.healthType
         : (s.offerPre.cobraPaid ? 'cobra-paid' : 'cobra-self');
-      const vrpBal = balanceAtRetirement(projectScenarios(trial).vrp, s);
-      if (vrpBal < stayBal) lo = mid; else hi = mid;
+      const vrpEnd = balanceAtHorizon(projectScenarios(trial).vrp);
+      if (vrpEnd < stayEnd) lo = mid; else hi = mid;
     }
     return (lo + hi) / 2;
   }
