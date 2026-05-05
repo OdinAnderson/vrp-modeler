@@ -469,6 +469,7 @@
     SS_FRA:                67,    // full retirement age for SS adjustment
     HORIZON_YEARS_AFTER_RETIRE: 15,
     MEDICARE_AGE:          65,
+    SEPT_PAYOUT_MONTH:     8,    // 0-indexed: September. Bonus + RSU tranche assumed paid in this month each year.
   };
   // SS adjustment for early/late claim: ~6%/yr early reduction, ~8%/yr late credit.
   function ssClaimMultiplier(claimAge) {
@@ -484,7 +485,9 @@
       yearsService: 22,
       salary: 187500,        // Total Rewards → Overview → Cash → "Annual base pay"
       bonusAmount: 27000,    // Total Rewards → Overview → Cash → "Annual bonus"
+      septBonus: 20000,      // Portion of annual bonus paid as a single September lump (forfeited if you separate before Sept)
       rsuAnnual: 73000,      // Total Rewards → Stock → "Total stock value granted in the last 12 months"
+      septRsuVest: 50000,    // Portion of annual RSU grant that vests as a September tranche (forfeited if you separate before Sept)
       rsuUnvested: 192000,   // Total Rewards → Stock → Quick info → "Total unvested value"
       vestingUnlocked: false,  // Microsoft "rule of 65/55": age 55+ and 15+ yrs of service → unvested RSUs continue vesting after separation
       privateHealthMonthly: 3000, // out-of-pocket monthly premium for private (ACA/marketplace) coverage after employer/COBRA ends, until Medicare at 65
@@ -555,6 +558,12 @@
       if (parsed && parsed.assumptions && parsed.assumptions.bridgeSpendingPct === undefined) {
         parsed.assumptions.bridgeSpendingPct = 70;
       }
+      if (parsed && parsed.profile && parsed.profile.septBonus === undefined) {
+        parsed.profile.septBonus = 20000;
+      }
+      if (parsed && parsed.profile && parsed.profile.septRsuVest === undefined) {
+        parsed.profile.septRsuVest = 50000;
+      }
       // Strip retired fields from older saves so they don't bloat exports.
       if (parsed && parsed.profile) {
         delete parsed.profile.coverageType;
@@ -574,10 +583,22 @@
 
   function annualSavings(s) {
     // Single source of truth — used by both project() and the STAY card display
-    // so they can never drift out of sync.
+    // so they can never drift out of sync. The September bonus & RSU tranche are
+    // discrete events handled separately by project(); they are excluded from the
+    // smoothed annual savings here so we don't double-count them.
+    const bonusResidual = Math.max(0, (s.profile.bonusAmount || 0) - (s.profile.septBonus || 0));
+    const rsuResidual   = Math.max(0, (s.profile.rsuAnnual   || 0) - (s.profile.septRsuVest || 0));
     return s.profile.salary * MODEL.SAVINGS_RATE_SALARY
-         + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU
-         + (s.profile.bonusAmount || 0) * MODEL.SAVINGS_RATE_BONUS;
+         + rsuResidual * MODEL.SAVINGS_RATE_RSU
+         + bonusResidual * MODEL.SAVINGS_RATE_BONUS;
+  }
+
+  // Fractional years from "today" until the September payout that lands in calendar year (currentYear + y).
+  // y=0 → the next September; y=1 → the September after, etc.
+  function septFracYearsFromNow(y) {
+    const now = new Date();
+    const sept = new Date(now.getFullYear() + (now.getMonth() > MODEL.SEPT_PAYOUT_MONTH ? 1 : 0) + y, MODEL.SEPT_PAYOUT_MONTH, 15);
+    return (sept - now) / (365.25 * 24 * 3600 * 1000);
   }
 
   function computeOfferCash(s) {
@@ -659,6 +680,8 @@
             // Job-gap: no contributions, small living-cost drawdown.
             bal -= s.profile.salary * MODEL.GAP_LIVING_COST_PCT * (1 - tax);
           } else if (yPost - gapYears < workYears) {
+            // Re-employment: smoothed contribution at workSalary scale.
+            // (No September lump from the new employer in this simple model.)
             const annSave = workSalary * MODEL.SAVINGS_RATE_SALARY
                           + s.profile.rsuAnnual * MODEL.SAVINGS_RATE_RSU * (workSalary / s.profile.salary);
             bal += annSave;
@@ -668,6 +691,16 @@
             const ssThisYear = age >= s.assumptions.ssStartAge ? ssAnnual : 0;
             bal -= Math.max(0, annualDraw - ssThisYear);
           }
+        }
+
+        // September bonus + RSU vest tranche. Captured only if the September date for
+        // this projection-year falls *strictly before* separation (still employed at the
+        // current employer). Smoothed savings rates apply so we stay consistent with the
+        // rest of the model (the rest of the lump is assumed spent on living costs).
+        const septFrac = septFracYearsFromNow(y);
+        if (septFrac < separationYears) {
+          bal += (s.profile.septBonus || 0) * MODEL.SAVINGS_RATE_BONUS;
+          bal += (s.profile.septRsuVest || 0) * MODEL.SAVINGS_RATE_RSU;
         }
 
         // Private health premiums (post-separation, pre-Medicare) for any month not covered by employer/COBRA.
@@ -915,6 +948,31 @@
     g2.appendChild(numberField('Total unvested stock value ($)', () => p.rsuUnvested, v => p.rsuUnvested = v, { step: 1000 },
       'From Total Rewards → Stock → Quick info → "Total unvested value". This is what you would forfeit by leaving (unless the offer continues vesting).'));
     body.appendChild(g2);
+
+    // September payouts \u2014 the discrete bonus + RSU tranche delivered each September.
+    // These are sub-portions of the annual amounts above; if you separate before the next
+    // September lands, you forfeit that year's lump.
+    const nextSept = (() => {
+      const d = new Date();
+      const sept = new Date(d.getFullYear() + (d.getMonth() > MODEL.SEPT_PAYOUT_MONTH ? 1 : 0), MODEL.SEPT_PAYOUT_MONTH, 15);
+      const months = Math.round((sept - d) / (30.44 * 24 * 3600 * 1000));
+      return { date: sept.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), months };
+    })();
+    const septHint = el('div', { class: 'src-hint', html:
+      `September is when bonus + the RSU vest tranche typically land. ` +
+      `Today is ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}; ` +
+      `next September payout: <b>${nextSept.date}</b> (~${nextSept.months} mo away). ` +
+      `If a separation occurs before that date, that year's tranche is forfeited. ` +
+      `These values are <b>portions</b> of the annual amounts above \u2014 the rest is treated as smoothed monthly contribution.`
+    });
+    body.appendChild(septHint);
+    const gSept = el('div', { class: 'grid2' });
+    gSept.appendChild(numberField('September bonus payout ($)', () => p.septBonus, v => p.septBonus = Math.max(0, Math.min(p.bonusAmount || 0, v)), { step: 1000 },
+      'The portion of your annual bonus paid as a single lump in September. Capped at "Annual bonus" above. Forfeited entirely if you separate before that September.'));
+    gSept.appendChild(numberField('September RSU vest tranche ($)', () => p.septRsuVest, v => p.septRsuVest = Math.max(0, Math.min(p.rsuAnnual || 0, v)), { step: 1000 },
+      'The portion of your annual RSU grant that vests in a single September tranche (e.g., your largest yearly vest). Capped at "Annual stock grant value" above. Forfeited entirely if you separate before that September.'));
+    body.appendChild(gSept);
+
     body.appendChild(checkField('RSU vesting unlocked (rule of 55+15)?', () => p.vestingUnlocked, v => { p.vestingUnlocked = v; renderOffer(); },
       'At Microsoft (and many large tech employers), once you are at least age 55 AND have at least 15 years of service, your unvested RSUs continue to vest on schedule even after you leave — you do not forfeit them. Check this box if you qualify. When checked, the offer’s “vesting continuation months” field is ignored AND no extra credit is given to the VRP scenario for unvested stock, because you’d get those RSUs whether you take the offer or stay (it’s a wash).'));
 
