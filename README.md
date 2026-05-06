@@ -10,8 +10,7 @@ A single-page web app for modeling **Voluntary Retirement Program (VRP)** offers
 
 ## What it does
 
-- **Pre-offer mode** — "If a VRP comes, what would a good offer look like for me?"
-- **Post-offer mode** — "Given this actual offer, should I take it or stay?"
+- **"What if?" modeling** — "If a VRP comes, what would a good offer look like for me?" Either dial in a hypothetical (cash multiple of salary, weeks/year of service, healthcare months, vesting continuation) or use the cash override to test an exact dollar amount.
 - **Breakpoint analysis** — Solves for the cash payout where `NPV(VRP) ≈ NPV(Stay)` and shows your offer as a percent of that breakpoint, with a traffic-light verdict (`TAKE` / `LEAN TAKE` / `LEAN STAY` / `STAY`).
 - **Projections** — NPV bar chart and per-year portfolio balance chart for all three scenarios.
 - **Privacy** — All math runs in your browser. Nothing leaves the tab. State is auto-saved to `localStorage`, with JSON export/import for sharing scenarios.
@@ -21,7 +20,7 @@ A single-page web app for modeling **Voluntary Retirement Program (VRP)** offers
 - **Profile** — age, planned retirement age, years of service, salary, bonus %, RSU annual + unvested, spouse age, college dependents, healthcare coverage tier.
 - **Assumptions** — real investment return, inflation, effective tax rate, Social Security start age, planned annual retirement spending.
 - **Layoff baseline** — severance formula (weeks base + weeks/year of service), expected time-to-new-job, healthcare continuation.
-- **Offer** — pre-offer (cash multiple of salary, weeks/year, healthcare months, vesting continuation, retirement bonus, COBRA paid Y/N) or post-offer (actual cash, healthcare type/duration, pension credits, vesting continuation).
+- **Offer** — cash multiple of salary (or fixed cash override), weeks/year of service, healthcare months, vesting continuation, retirement bonus, COBRA paid Y/N, acceptance window.
 
 Every input has a hover tooltip explaining what it is and how it affects the model.
 
